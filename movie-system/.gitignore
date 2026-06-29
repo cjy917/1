@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 本地数据库与密钥
+backend/app.db
+secrets.local
+.env
+.env.*
+
+# 前端依赖与构建
+frontend/node_modules/
+frontend/dist/
+
+# 日志
+*.log
+
+# 媒体与大数据在上一级 xt2 目录，不在本仓库内
+posters/
+videos/
+trailers/

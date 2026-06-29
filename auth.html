@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>账号登录注册 | 电影推荐系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            /* 亮色主题变量 */
+            --bg-body: #ffffff;
+            --bg-card: #ffffff;
+            --bg-nav: #0a3452;
+            --text-primary: #000000;
+            --text-secondary: #666666;
+            --text-nav: #ffffff;
+            --border-color: #eeeeee;
+            --btn-main: #00b4e5;
+            --btn-hover: #009dc9;
+            --shadow-color: rgba(0,0,0,0.15);
+            --gradient-bg: linear-gradient(135deg, #f5f7fa, #eef2f7);
+        }
+        [data-theme="dark"] {
+            /* 暗色主题变量 */
+            --bg-body: #12141d;
+            --bg-card: #1f2330;
+            --bg-nav: #08273d;
+            --text-primary: #ffffff;
+            --text-secondary: #bbbbbb;
+            --text-nav: #ffffff;
+            --border-color: #333333;
+            --btn-main: #00b4e5;
+            --btn-hover: #009dc9;
+            --shadow-color: rgba(0,0,0,0.4);
+            --gradient-bg: linear-gradient(135deg, #12141d, #1c2030);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+        body {
+            background: var(--gradient-bg);
+            min-height: 100vh;
+            font-family: "Microsoft Yahei", sans-serif;
+            color: var(--text-primary);
+        }
+
+        /* ========== 顶部导航栏（匹配截图样式） ========== */
+        .top-nav {
+            background-color: var(--bg-nav);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            height: 60px;
+            color: var(--text-nav);
+        }
+        .nav-left {
+            display: flex;
+            align-items: center;
+            gap: 28px;
+        }
+        .brand-logo {
+            font-size: 20px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .brand-logo span::before {
+            content: "●";
+            color: #36d1f5;
+            margin-right: 4px;
+        }
+        .nav-menu a {
+            color: var(--text-nav);
+            text-decoration: none;
+            margin: 0 10px;
+            font-size: 16px;
+            opacity: 0.85;
+        }
+        .nav-menu a:hover {
+            opacity: 1;
+        }
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .theme-toggle {
+            background: transparent;
+            border: none;
+            color: var(--text-nav);
+            font-size: 18px;
+            cursor: pointer;
+        }
+        .nav-btn {
+            color: var(--text-nav);
+            text-decoration: none;
+            font-size: 16px;
+            opacity: 0.85;
+        }
+        .nav-btn:hover {
+            opacity: 1;
+        }
+        .search-icon {
+            font-size: 18px;
+            cursor: pointer;
+        }
+
+        /* ========== 登录主体容器 ========== */
+        .page-wrap {
+            min-height: calc(100vh - 60px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .main-container {
+            display: flex;
+            width: 920px;
+            height: 560px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px var(--shadow-color);
+        }
+        /* 左侧电影封面区域 */
+        .left-poster-box {
+            width: 50%;
+            background-color: #000;
+            position: relative;
+            overflow: hidden;
+        }
+        .poster-item {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 1.2s ease-in-out;
+        }
+        .poster-item.active {
+            opacity: 1;
+        }
+        .poster-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .poster-desc {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            padding: 25px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.85));
+            color: #fff;
+        }
+        /* 右侧登录注册面板 */
+        .right-auth-box {
+            width: 50%;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-card);
+        }
+        .tab-header {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .tab-item {
+            flex: 1;
+            text-align: center;
+            padding: 18px 0;
+            font-size: 18px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: 0.2s;
+            position: relative;
+        }
+        .tab-item.active {
+            color: var(--btn-main);
+            font-weight: 500;
+        }
+        .tab-item.active::after {
+            content: "";
+            position: absolute;
+            bottom: -1px;
+            left: 25%;
+            width: 50%;
+            height: 3px;
+            background: var(--btn-main);
+        }
+        .form-wrap {
+            flex: 1;
+            padding: 35px;
+            overflow-y: auto;
+        }
+        .form-panel {
+            display: none;
+        }
+        .form-panel.show {
+            display: block;
+        }
+        .tips-alert {
+            margin-bottom: 18px;
+            text-align: center;
+        }
+        .form-control {
+            height: 48px;
+            font-size: 15px;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+        .form-control:focus {
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+        }
+        .form-label {
+            color: var(--text-primary);
+        }
+        .mb-3 {
+            margin-bottom: 18px !important;
+        }
+        .mb-4 {
+            margin-bottom: 24px !important;
+        }
+        .btn-submit {
+            height: 50px;
+            background-color: var(--btn-main);
+            border: none;
+            font-size: 17px;
+            font-weight: 500;
+            border-radius: 25px;
+        }
+        .btn-submit:hover {
+            background-color: var(--btn-hover);
+        }
+        .tip-text {
+            text-align: center;
+            margin-top: 16px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        .tip-text a {
+            color: var(--btn-main);
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航栏（和截图完全一致布局） -->
+    <nav class="top-nav">
+        <div class="nav-left">
+            <div class="brand-logo">FYWZ <span>movies</span></div>
+            <div class="nav-menu">
+                <a href="/movie">电影</a>
+                <a href="/analysis">数据分析</a>
+                <a href="/recommend">推荐</a>
+            </div>
+        </div>
+        <div class="nav-right">
+            <button class="theme-toggle" id="themeBtn">🌙</button>
+            <a href="#" class="nav-btn">登录</a>
+            <a href="#" class="nav-btn">注册</a>
+            <span class="search-icon">🔍</span>
+        </div>
+    </nav>
+
+    <div class="page-wrap">
+        <div class="main-container">
+            <!-- 左侧：本地热门电影封面自动轮播 -->
+            <div class="left-poster-box">
+                <div class="poster-item active">
+                    <img src="{{ url_for('static', filename='movie_covers/img_2.png') }}" alt="热门电影">
+                    <div class="poster-desc">
+                        <h4>高分热门影片</h4>
+                        <p>海量电影随心推荐，快速发现好片</p>
+                    </div>
+                </div>
+                <div class="poster-item">
+                    <img src="{{ url_for('static', filename='movie_covers/img_1.png') }}" alt="热门电影">
+                    <div class="poster-desc">
+                        <h4>经典高分佳作</h4>
+                        <p>千万用户真实评分参考</p>
+                    </div>
+                </div>
+                <div class="poster-item">
+                    <img src="{{ url_for('static', filename='movie_covers/img.png') }}" alt="热门电影">
+                    <div class="poster-desc">
+                        <h4>个性化智能推荐</h4>
+                        <p>基于协同过滤与图算法精准匹配喜好</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：登录注册Tab面板（原有逻辑完全不变） -->
+            <div class="right-auth-box">
+                <div class="tab-header">
+                    <div class="tab-item active" onclick="switchTab('login')">登录</div>
+                    <div class="tab-item" onclick="switchTab('register')">注册</div>
+                </div>
+                <div class="form-wrap">
+                    {% with messages = get_flashed_messages() %}
+                        {% if messages %}
+                            <div class="alert alert-danger tips-alert">
+                                {{ messages[0] }}
+                            </div>
+                        {% endif %}
+                    {% endwith %}
+
+                    <!-- 登录表单 -->
+                    <div id="login" class="form-panel show">
+                        <form action="/do_login" method="post">
+                            <div class="mb-3">
+                                <label class="form-label">用户名</label>
+                                <input type="text" name="username" class="form-control" placeholder="请输入用户名" required>
+                            </div>
+                            <div class="mb-4">
+                                <label class="form-label">密码</label>
+                                <input type="password" name="password" class="form-control" placeholder="请输入密码" required>
+                            </div>
+                            <button class="btn btn-primary w-100 btn-submit" type="submit">登录</button>
+                            <div class="tip-text">还没有账号？<a href="javascript:switchTab('register')">立即注册</a></div>
+                        </form>
+                    </div>
+
+                    <!-- 注册表单 -->
+                    <div id="register" class="form-panel">
+                        <form action="/do_register" method="post">
+                            <div class="mb-3">
+                                <label class="form-label">设置用户名</label>
+                                <input type="text" name="username" class="form-control" placeholder="自定义账号" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">设置密码</label>
+                                <input type="password" name="password" class="form-control" placeholder="6位以上密码" required>
+                            </div>
+                            <div class="mb-4">
+                                <label class="form-label">确认密码</label>
+                                <input type="password" name="repwd" class="form-control" placeholder="再次输入密码" required>
+                            </div>
+                            <button class="btn btn-primary w-100 btn-submit" type="submit">完成注册</button>
+                            <div class="tip-text">已有账号？<a href="javascript:switchTab('login')">去登录</a></div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // Tab切换
+    function switchTab(type) {
+        let tabs = document.querySelectorAll('.tab-item');
+        tabs.forEach(item => item.classList.remove('active'));
+        event.target.classList.add('active');
+        document.querySelectorAll('.form-panel').forEach(panel => {
+            panel.classList.remove('show');
+        })
+        document.getElementById(type).classList.add('show');
+    }
+
+    // 左侧电影封面自动轮播
+    let posterIndex = 0;
+    const posterList = document.querySelectorAll('.poster-item');
+    function autoSlide() {
+        posterList[posterIndex].classList.remove('active');
+        posterIndex = (posterIndex + 1) % posterList.length;
+        posterList[posterIndex].classList.add('active');
+    }
+    setInterval(autoSlide, 4500);
+
+    // ========== 亮/暗色切换逻辑 + 本地存储记忆 ==========
+    const htmlRoot = document.documentElement;
+    const themeBtn = document.getElementById('themeBtn');
+    // 读取本地缓存主题
+    let currentTheme = localStorage.getItem('siteTheme') || 'light';
+    applyTheme(currentTheme);
+
+    themeBtn.addEventListener('click', ()=>{
+        currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+        localStorage.setItem('siteTheme', currentTheme);
+        applyTheme(currentTheme);
+    })
+
+    function applyTheme(theme){
+        htmlRoot.setAttribute('data-theme', theme);
+        if(theme === 'dark'){
+            themeBtn.textContent = '☀️';
+        }else{
+            themeBtn.textContent = '🌙';
+        }
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+# 忽略所有数据文件（CSV, Parquet）和数据目录
+cleaned_data/
+films_data/
+ratings/
+*.csv
+*.parquet
+
+# 忽略 posters 和 videos 目录
+posters/
+videos/
+trailers/
+
+# ===== 新增：忽略 Python 缓存 =====
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== 新增：忽略 Spark 任务产生的垃圾元数据 =====
+*.crc
+_SUCCESS
+._SUCCESS.crc
+
+# ===== 新增：忽略大体积备份和压缩包 =====
+*.sql
+*.tar.gz
+*.zip
+
+# ===== 新增：忽略 IDE 工作区（如果你不想上传 .idea 可以加这行） =====
+.idea/
