@@ -34,7 +34,7 @@ onMounted(() => {
 <template>
   <section class="section-surface py-8">
     <div class="mx-auto max-w-[1400px] px-4 lg:px-8">
-      <h2 class="mb-5 text-2xl font-bold">{{ title }}</h2>
+      <h2 v-if="title" class="mb-5 text-2xl font-bold">{{ title }}</h2>
       <div ref="track" class="flex gap-4 overflow-x-auto pb-3 scroll-smooth">
         <MovieCard v-for="movie in movies" :key="movie.movie_id" :movie="movie" />
       </div>

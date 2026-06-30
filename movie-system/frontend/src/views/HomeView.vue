@@ -9,7 +9,10 @@ import { initLocalTrailerIds } from '../utils/trailerCache'
 const sections = ref({ banner: [], popular: [], top_rated: [], latest: [] })
 
 onMounted(async () => {
-  await Promise.all([initLocalTrailerIds(), movieApi.home().then(({ data }) => { sections.value = data })])
+  await Promise.all([
+    initLocalTrailerIds(),
+    movieApi.home().then(({ data }) => { sections.value = data }),
+  ])
 })
 </script>
 

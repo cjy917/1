@@ -40,13 +40,15 @@ from services.movie_service import (
     resolve_poster_file,
     search_suggest,
 )
-from services.recommend_service import (
-    get_cached_recommendations,
-    recommend_als_for_user,
-    recommend_graph_similar,
-    refresh_user_recommendations,
-    seed_crawled_ratings,
+from services.recommendation_service import (
+    get_cold_start_movies,
+    get_content_similar_movies,
+    hybrid_recommendations,
+    import_spark_results,
+    refresh_spark_recommendations,
 )
+from services.spark_vm_client import SparkVMError
+from services.recommend_service import seed_crawled_ratings
 from services.trailer_service import _trailer_memory_cache, get_local_trailer_path, list_local_trailer_ids, resolve_trailer
 from services.video_service import (
     get_local_video_path,
@@ -188,33 +190,10 @@ def create_app() -> Flask:
 
     @app.route("/api/movies/<int:movie_id>")
     def movie_detail(movie_id: int):
-        """
-        获取电影详情接口（点击封面后调用）
-        
-        用户从数据分析页面点击电影海报/封面后，前端路由跳转到电影详情页，
-        详情页加载时调用此接口获取完整的电影信息。
-        
-        Args:
-            movie_id: 电影ID（从URL路径参数获取）
-        
-        Returns:
-            电影详情JSON，包含：
-            - 基本信息：标题、评分、年份、时长、类型、导演、演员等
-            - 用户相关：我的评分、是否收藏、是否在待看列表、是否在片单
-            - 评论数据：爬取的精选短评列表
-            - 主题配置：hero主题样式配置
-            
-        HTTP方法: GET
-        路由: /api/movies/{movie_id}
-        """
         movie = get_movie_by_id(movie_id)
         if not movie:
             return jsonify({"error": "电影不存在"}), 404
-        
-        # 解析爬取的评论数据
         movie["crawled_review_list"] = parse_crawled_reviews(movie.get("reviews"))
-        
-        # 获取当前用户的相关状态（评分、收藏、待看、片单）
         user_id = session.get("user_id")
         if user_id:
             rating = UserRating.query.filter_by(user_id=user_id, movie_id=movie_id).first()
@@ -226,15 +205,11 @@ def create_app() -> Flask:
             movie["is_watchlist"] = watchlist is not None
             movie["in_list"] = list_item is not None
         else:
-            # 未登录用户默认状态
             movie["my_rating"] = None
             movie["is_favorite"] = False
             movie["is_watchlist"] = False
             movie["in_list"] = False
-        
-        # 获取电影hero主题配置
         movie["hero_theme"] = get_movie_hero_theme(movie_id, movie.get("cover_path"))
-        
         return jsonify(movie)
 
     @app.route("/api/movies/<int:movie_id>/similar")
@@ -344,7 +319,6 @@ def create_app() -> Flask:
                 return jsonify({"error": "尚未评分"}), 404
             db.session.delete(rating)
             db.session.commit()
-            refresh_user_recommendations(user_id)
             return jsonify({"message": "评分已删除"})
 
         payload = request.get_json(force=True)
@@ -361,7 +335,6 @@ def create_app() -> Flask:
             rating = UserRating(user_id=user_id, movie_id=movie_id, score=score)
             db.session.add(rating)
         db.session.commit()
-        refresh_user_recommendations(user_id)
         return jsonify({"message": "评分成功", "rating": rating.to_dict()})
 
     @app.route("/api/favorites", methods=["GET", "POST", "DELETE"])
@@ -497,8 +470,6 @@ def create_app() -> Flask:
                 db.session.add(UserRating(user_id=user_id, movie_id=movie_id, score=parsed_score))
 
         db.session.commit()
-        if parsed_score is not None:
-            refresh_user_recommendations(user_id)
 
         user = User.query.get(user_id)
         item = row.to_dict(username=user.username if user else "用户")
@@ -637,30 +608,68 @@ def create_app() -> Flask:
     @login_required
     def personal_recommend():
         user_id = session["user_id"]
-        items = get_cached_recommendations(user_id)
-        return jsonify({"items": items, "algorithm": "协同过滤个性化推荐"})
+        return jsonify(hybrid_recommendations(user_id))
 
     @app.route("/api/recommend/refresh", methods=["POST"])
     @login_required
     def refresh_recommend():
         user_id = session["user_id"]
-        items = refresh_user_recommendations(user_id)
-        return jsonify({"items": items})
+        try:
+            return jsonify(refresh_spark_recommendations(user_id))
+        except SparkVMError as exc:
+            return jsonify({"error": str(exc)}), 503
 
     @app.route("/api/recommend/similar/<int:movie_id>")
     def graph_similar(movie_id: int):
         return jsonify(
             {
-                "items": recommend_graph_similar(movie_id),
-                "algorithm": "图关系相似推荐",
+                "items": get_content_similar_movies(movie_id),
+                "algorithm": "content_tfidf",
             }
         )
 
     @app.route("/api/recommend/guest")
     def guest_recommend():
-        from services.recommend_service import _fallback_popular
+        popular = get_cold_start_movies(20)
+        return jsonify(
+            {
+                "items": popular,
+                "hybrid_items": [],
+                "als_items": [],
+                "graphx_items": [],
+                "content_items": [],
+                "popular_items": popular,
+                "strategy": "cold_start",
+                "strategy_label": "冷启动 · 与首页「热门电影」相同",
+                "source": "fallback",
+                "rating_count": 0,
+                "spark_imported": False,
+                "personalized_ready": False,
+                "rating_required": 3,
+            }
+        )
 
-        return jsonify({"items": _fallback_popular(12)})
+    @app.route("/api/spark/load-results", methods=["POST"])
+    @login_required
+    def load_spark_results():
+        counts = import_spark_results()
+        if not counts:
+            return jsonify({"error": "未找到 Spark 输出文件，请先在 Ubuntu 运行 spark/run_spark_jobs.sh"}), 404
+        total = sum(counts.values())
+        return jsonify({"message": "Spark 推荐结果已导入", "count": total, "details": counts})
+
+    @app.route("/api/spark/export-ratings", methods=["POST"])
+    @login_required
+    def export_ratings_api():
+        import sys
+        from pathlib import Path
+
+        scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
+        sys.path.insert(0, str(scripts_dir))
+        from export_spark_ratings import export_ratings
+
+        count = export_ratings()
+        return jsonify({"message": "评分数据已导出", "count": count})
 
     @app.route("/api/admin/data-preview")
     def data_preview():

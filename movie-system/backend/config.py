@@ -3,7 +3,27 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parent
-ROOT_DIR = PROJECT_DIR.parent
+CS1_ROOT = PROJECT_DIR.parent.parent
+# 兼容 cs1/movie-system2/movie-system2 与 FYWZ/movie-system2 两种目录布局
+ROOT_DIR = CS1_ROOT if (CS1_ROOT / "films_data").exists() else PROJECT_DIR.parent
+
+SPARK_DIR = PROJECT_DIR / "spark"
+SPARK_OUTPUT_DIR = SPARK_DIR / "output"
+SPARK_DATA_DIR = SPARK_DIR / "data"
+FILMS_RATINGS_DIR = ROOT_DIR / "films_data" / "ratings" / "ratings.csv"
+
+# 混合推荐权重
+WEIGHT_ALS = 0.7
+WEIGHT_GRAPHX = 0.2
+WEIGHT_CONTENT = 0.1
+RECOMMEND_TOP_N = 12
+
+# Ubuntu VM Spark 网关（用户点「刷新推荐」时同步 ratings 并触发批处理）
+SPARK_VM_URL = os.environ.get("SPARK_VM_URL", "http://192.168.111.128:5001")
+SPARK_VM_ENABLED = os.environ.get("SPARK_VM_ENABLED", "true").lower() in ("1", "true", "yes")
+SPARK_USER_OFFSET = 1_000_000
+SPARK_RECOMPUTE_TIMEOUT = int(os.environ.get("SPARK_RECOMPUTE_TIMEOUT", "600"))
+SPARK_RECOMPUTE_POLL_INTERVAL = int(os.environ.get("SPARK_RECOMPUTE_POLL_INTERVAL", "5"))
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "spark-movie-recommend-2026")
 SQLALCHEMY_DATABASE_URI = f"sqlite:///{(BASE_DIR / 'app.db').as_posix()}"
@@ -18,14 +38,23 @@ MYSQL_DATABASE = os.environ.get("MYSQL_DATABASE", "movies_db")
 RATINGS_CSV = ROOT_DIR / "films_data" / "ratings" / "ratings.csv" / "part-00000-7a865d44-e3a2-439e-8431-068b3f538be8-c000.csv"
 if not RATINGS_CSV.exists():
     RATINGS_CSV = ROOT_DIR / "ratings" / "ratings.csv" / "part-00000-7a865d44-e3a2-439e-8431-068b3f538be8-c000.csv"
+if not RATINGS_CSV.exists() and FILMS_RATINGS_DIR.exists():
+    csv_parts = sorted(FILMS_RATINGS_DIR.glob("part-*.csv"))
+    if csv_parts:
+        RATINGS_CSV = csv_parts[0]
 
 PICTURE_DIRS = [
     ROOT_DIR / "posters",
+    ROOT_DIR / "posters" / "posters",
     ROOT_DIR / "picture",
     ROOT_DIR / "picture" / "output" / "posters",
     ROOT_DIR / "films_data" / "picture",
     PROJECT_DIR / "picture",
 ]
+# 同机部署时回退到 FYWZ 海报目录（cover_path 多为 ./picture/p*.webp）
+_fywz_posters = ROOT_DIR.parent / "FYWZ" / "posters"
+if _fywz_posters.exists() and _fywz_posters not in PICTURE_DIRS:
+    PICTURE_DIRS.append(_fywz_posters)
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 60
@@ -54,11 +83,11 @@ TRAILER_DIR = ROOT_DIR / "trailers"
 MEDIA_DIR = PROJECT_DIR / "media"
 
 # 本地正片文件名映射：movie_id -> videos/ 下的文件名（非 {movie_id}.mp4 时使用）
-LOCAL_VIDEO_FILES: dict[int, str] = {}
-
-# 国内可访问的演示 MP4，用于无本地文件时的兜底播放
-DEMO_MOVIE_MP4 = "https://www.w3school.com.cn/example/html5/mov_bbb.mp4"
-DEMO_TRAILER_MP4 = "https://www.w3school.com.cn/example/html5/mov_bbb.mp4"
+NEZHA_LOCAL_VIDEO = "2025.1080p.WEB-DL.H264.AAC.mp4"
+LOCAL_VIDEO_FILES: dict[int, str] = {
+    26794435: NEZHA_LOCAL_VIDEO,  # 哪吒之魔童降世（当前为本地闹海正片）
+    980477: NEZHA_LOCAL_VIDEO,    # 哪吒之魔童闹海
+}
 
 SECRETS_FILE = PROJECT_DIR / "secrets.local"
 

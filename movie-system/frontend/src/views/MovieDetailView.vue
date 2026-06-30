@@ -72,6 +72,20 @@ const externalDetailLabel = computed(() => {
 
 const hasExternalDetail = computed(() => Boolean(movie.value?.detail_url))
 
+const commentStarScore = computed({
+  get: () => commentScore.value / 2,
+  set: (value) => {
+    commentScore.value = value > 0 ? value * 2 : 0
+  },
+})
+
+const starScore = computed({
+  get: () => myScore.value / 2,
+  set: (value) => {
+    myScore.value = value > 0 ? value * 2 : 0
+  },
+})
+
 const myComment = computed(() => userComments.value.find((item) => item.is_mine) || null)
 
 function clearTrailerSlowTimer() {
@@ -110,17 +124,6 @@ function startPlaybackSlowTimer() {
 
 const heroOverlay = computed(() => movie.value?.hero_theme?.overlay || '')
 
-/**
- * 加载电影详情数据（页面初始化时调用）
- * 
- * 用户从数据分析页面点击电影海报后，路由跳转到 /movie/{id}，
- * 此函数在 onMounted 和路由参数变化时自动调用。
- * 
- * 加载流程：
- * 1. 获取路由参数中的电影ID
- * 2. 调用 movieApi.detail(id) 获取电影基础信息
- * 3. 并行加载：相似电影、评论、播放资源、预告片
- */
 async function load() {
   const id = route.params.id
   pageLoading.value = true
@@ -130,7 +133,6 @@ async function load() {
   movieWantAutoplay.value = false
   moviePlaybackError.value = false
   try {
-    // 调用电影详情接口获取基础信息
     const { data } = await movieApi.detail(id)
     movie.value = data
     savedScore.value = data.my_rating || 0
@@ -141,11 +143,10 @@ async function load() {
     activeTab.value = 'trailer'
     pageLoading.value = false
 
-    // 并行加载其他数据
-    loadSimilar(id)           // 相似电影推荐
-    loadComments()            // 用户评论列表
-    loadPlayback()            // 正片播放资源
-    loadTrailerAsync()        // 预告片资源
+    loadSimilar(id)
+    loadComments()
+    loadPlayback()
+    loadTrailerAsync()
   } catch {
     pageLoading.value = false
   }
@@ -232,7 +233,7 @@ function formatReviewRating(value) {
 function reviewStarScore(value) {
   const n = Number(value)
   if (Number.isNaN(n) || n <= 0) return 0
-  return n
+  return n / 2
 }
 
 function isReviewLong(content) {
@@ -546,12 +547,11 @@ onMounted(load)
             <div class="flex flex-wrap items-center gap-3">
               <span class="text-sm detail-hero__label">我的评分</span>
               <el-rate
-                v-model="myScore"
+                v-model="starScore"
                 allow-half
                 clearable
-                :max="10"
+                :max="5"
                 :colors="['#01B4E4', '#01B4E4', '#01B4E4']"
-                class="detail-hero__stars"
                 @change="onStarChange"
               />
               <span v-if="myScore > 0" class="text-sm font-semibold text-[#01B4E4]">{{ myScore.toFixed(1) }}</span>
@@ -721,10 +721,10 @@ onMounted(load)
             <span class="review-item__author">{{ userStore.user?.username }}</span>
             <span class="review-item__tag">写短评</span>
             <el-rate
-              v-model="commentScore"
+              v-model="commentStarScore"
               allow-half
               clearable
-              :max="10"
+              :max="5"
               :colors="['#f5a623', '#f5a623', '#f5a623']"
               void-color="#c0c4cc"
               class="review-item__stars"
@@ -781,7 +781,7 @@ onMounted(load)
                 :model-value="reviewStarScore(item.score)"
                 disabled
                 allow-half
-                :max="10"
+                :max="5"
                 :colors="['#f5a623', '#f5a623', '#f5a623']"
                 disabled-void-color="#c0c4cc"
               />
@@ -824,7 +824,7 @@ onMounted(load)
                 :model-value="reviewStarScore(item.rating)"
                 disabled
                 allow-half
-                :max="10"
+                :max="5"
                 :colors="['#f5a623', '#f5a623', '#f5a623']"
                 disabled-void-color="#c0c4cc"
               />
@@ -963,12 +963,6 @@ onMounted(load)
   align-items: center;
   gap: 1rem;
   padding-top: 0.25rem;
-}
-
-.detail-hero__stars :deep(.el-rate__icon),
-.detail-hero__stars :deep(.el-rate__decimal) {
-  font-size: 1rem;
-  margin-right: 0;
 }
 
 .detail-hero__btn {
@@ -1140,10 +1134,8 @@ onMounted(load)
   font-size: 0.8rem;
 }
 
-.detail-reviews .review-item__stars :deep(.el-rate__icon),
-.detail-reviews .review-item__stars :deep(.el-rate__decimal) {
-  font-size: 0.72rem;
-  margin-right: 0;
+.detail-reviews .review-item__stars :deep(.el-rate__icon) {
+  font-size: 0.85rem;
 }
 
 .detail-reviews .review-item__body {
@@ -1297,10 +1289,9 @@ onMounted(load)
   height: auto;
 }
 
-.review-item__stars :deep(.el-rate__icon),
-.review-item__stars :deep(.el-rate__decimal) {
-  font-size: 0.72rem;
-  margin-right: 0;
+.review-item__stars :deep(.el-rate__icon) {
+  font-size: 0.95rem;
+  margin-right: 1px;
 }
 
 .review-item__score {

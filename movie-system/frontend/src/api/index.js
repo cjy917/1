@@ -19,15 +19,6 @@ export const movieApi = {
   list: (params) => api.get('/movies', { params }),
   home: () => api.get('/movies/home'),
   filters: () => api.get('/movies/filters'),
-  /**
-   * 获取电影详情（点击封面后调用）
-   * 
-   * 用户从数据分析页面点击电影海报/封面后，路由跳转到电影详情页，
-   * 详情页加载时调用此接口获取完整的电影信息。
-   * 
-   * @param {number|string} id - 电影ID
-   * @returns {Promise} 返回电影详情数据
-   */
   detail: (id) => api.get(`/movies/${id}`),
   similar: (id) => api.get(`/movies/${id}/similar`),
   trailer: (id, params) => api.get(`/movies/${id}/trailer`, { params }),
@@ -74,9 +65,14 @@ export const analyticsApi = {
 
 export const recommendApi = {
   personal: () => api.get('/recommend/personal'),
-  refresh: () => api.post('/recommend/refresh'),
+  refresh: () => api.post('/recommend/refresh', {}, { timeout: 600000 }),
   similar: (id) => api.get(`/recommend/similar/${id}`),
   guest: () => api.get('/recommend/guest'),
+}
+
+export const sparkApi = {
+  importResults: () => api.post('/spark/load-results'),
+  exportRatings: () => api.post('/spark/export-ratings'),
 }
 
 export const commentApi = {

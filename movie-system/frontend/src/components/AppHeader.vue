@@ -1,21 +1,29 @@
 <script setup>
-import { onBeforeUnmount, onMounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { useSearchPanel } from '../composables/useSearchPanel'
 import HeaderSearch from './HeaderSearch.vue'
 import ThemeToggle from './ThemeToggle.vue'
 
 const router = useRouter()
-const route = useRoute()
 const userStore = useUserStore()
-const { searchOpen, toggleSearch, closeSearch } = useSearchPanel()
+const searchOpen = ref(false)
 
 const navItems = [
   { label: '电影', to: '/movies' },
   { label: '数据分析', to: '/analytics' },
   { label: '推荐', to: '/recommend' },
 ]
+
+const activePath = computed(() => router.currentRoute.value.path)
+
+function toggleSearch() {
+  searchOpen.value = !searchOpen.value
+}
+
+function closeSearch() {
+  searchOpen.value = false
+}
 
 async function handleLogout() {
   await userStore.logout()
@@ -26,7 +34,7 @@ function onDocumentClick(event) {
   if (!searchOpen.value) return
   const target = event.target
   if (!(target instanceof Element)) return
-  if (target.closest('.site-header-shell') || target.closest('.header-search')) return
+  if (target.closest('.site-header-search') || target.closest('.header-search')) return
   closeSearch()
 }
 
@@ -36,26 +44,16 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick)
-  document.documentElement.classList.remove('search-panel-open')
 })
 
 watch(
-  () => route.fullPath,
+  () => router.currentRoute.value.fullPath,
   () => closeSearch(),
 )
-
-watch(searchOpen, (open) => {
-  document.documentElement.classList.toggle('search-panel-open', open)
-  if (open && route.path === '/') {
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-})
 </script>
 
 <template>
-  <header
-    class="site-header-shell site-header fixed inset-x-0 top-0 z-50"
-  >
+  <header class="site-header fixed inset-x-0 top-0 z-50">
     <div class="site-header__inner">
       <div class="site-header__left">
         <router-link to="/" class="site-header-logo">
@@ -70,7 +68,7 @@ watch(searchOpen, (open) => {
             :key="item.to"
             :to="item.to"
             class="site-nav-link"
-            :class="{ 'is-active': route.path === item.to }"
+            :class="{ 'is-active': activePath === item.to }"
           >
             {{ item.label }}
           </router-link>
@@ -99,7 +97,6 @@ watch(searchOpen, (open) => {
           class="site-header-search"
           :class="{ 'site-header-search--active': searchOpen }"
           aria-label="搜索"
-          :aria-expanded="searchOpen"
           @click.stop="toggleSearch"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -113,9 +110,7 @@ watch(searchOpen, (open) => {
         </button>
       </div>
     </div>
-  </header>
 
-  <Transition name="search-panel">
-    <HeaderSearch v-if="searchOpen" :open="searchOpen" class="header-search--flow" @close="closeSearch" />
-  </Transition>
+    <HeaderSearch :open="searchOpen" @close="closeSearch" />
+  </header>
 </template>

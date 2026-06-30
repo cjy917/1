@@ -6,13 +6,11 @@ import AppFooter from './components/AppFooter.vue'
 import { useUserStore } from './stores/user'
 import { useThemeStore } from './stores/theme'
 import { useRatingsStore } from './stores/ratings'
-import { useSearchPanel } from './composables/useSearchPanel'
 
 const route = useRoute()
 const userStore = useUserStore()
 const themeStore = useThemeStore()
 const ratingsStore = useRatingsStore()
-const { searchOpen } = useSearchPanel()
 
 const hideShell = computed(() => route.meta.hideShell === true)
 
@@ -35,7 +33,7 @@ watch(
   <div class="min-h-screen" style="background: var(--fywz-bg)">
     <template v-if="!hideShell">
       <AppHeader />
-      <main class="page-shell" :class="{ 'page-shell--search-open': searchOpen }">
+      <main class="page-shell">
         <router-view />
       </main>
       <AppFooter />

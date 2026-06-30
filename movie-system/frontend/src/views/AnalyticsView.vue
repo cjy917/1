@@ -287,17 +287,8 @@ function handleRetry() {
   refreshAllData()
 }
 
-/**
- * 处理电影点击事件（点击封面进入详情页）
- * 
- * 点击数据分析页面中的电影海报/封面时触发此函数，
- * 通过 Vue Router 跳转到电影详情页面
- * 
- * @param {Object} movie - 电影对象，包含 movie_id 字段
- */
 function handleMovieClick(movie) {
   if (movie?.movie_id) {
-    // 跳转到电影详情页面，路由名称 'movie-detail'，参数 id 为电影ID
     router.push({ name: 'movie-detail', params: { id: movie.movie_id } })
   }
 }

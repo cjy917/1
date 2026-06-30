@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 from urllib.parse import quote
 
-import requests
+from services.http_client import external_get
 
 from config import TMDB_API_KEY, TRAILER_DIR
 from models import PlaybackCache, db
@@ -15,7 +15,7 @@ HEADERS = {
 
 YOUTUBE_KEY_RE = re.compile(r"[A-Za-z0-9_-]{11}")
 TRAILER_EXTENSIONS = (".mp4", ".webm", ".m4v")
-REQUEST_TIMEOUT = 5
+REQUEST_TIMEOUT = 12
 YOUTUBE_SEARCH_TIMEOUT = 3
 
 _trailer_memory_cache: dict[int, dict] = {}
@@ -77,7 +77,7 @@ def _fetch_tmdb_trailer_key(tmdb_id: str) -> str | None:
     if not TMDB_API_KEY or not tmdb_id:
         return None
     try:
-        response = requests.get(
+        response = external_get(
             f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos",
             params={"api_key": TMDB_API_KEY, "language": "en-US"},
             headers=HEADERS,
@@ -87,7 +87,7 @@ def _fetch_tmdb_trailer_key(tmdb_id: str) -> str | None:
         key = _pick_best_youtube_key(response.json().get("results", []))
         if key:
             return key
-        response = requests.get(
+        response = external_get(
             f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos",
             params={"api_key": TMDB_API_KEY, "language": "zh-CN"},
             headers=HEADERS,
@@ -103,7 +103,7 @@ def _fetch_youtube_search(title: str) -> str | None:
     """TMDB 无预告时的兜底；短超时，避免拖慢详情页。"""
     try:
         url = f"https://www.youtube.com/results?search_query={quote(title + ' official trailer')}"
-        response = requests.get(url, headers=HEADERS, timeout=YOUTUBE_SEARCH_TIMEOUT)
+        response = external_get(url, headers=HEADERS, timeout=YOUTUBE_SEARCH_TIMEOUT)
         response.raise_for_status()
         keys = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', response.text)
         return keys[0] if keys else None

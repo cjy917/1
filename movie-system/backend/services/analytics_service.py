@@ -1,13 +1,3 @@
-"""
-电影数据分析服务模块
-
-提供电影数据的各类统计分析功能，包括：
-- 类型/年份/国家/语言分布统计
-- 评分/时长/导演/演员分析
-- 词云数据生成
-- 多维度筛选支持
-- 数据导出支持
-"""
 from collections import Counter
 import re
 from typing import Any
@@ -24,18 +14,6 @@ _DURATION_RE = re.compile(r"(\d+)")
 
 
 def parse_duration_minutes(value: Any) -> int | None:
-    """解析电影时长为分钟数
-    
-    支持多种输入格式：
-    - 数字类型直接转换
-    - 字符串类型提取第一个数字（如 "120分钟" -> 120）
-    
-    Args:
-        value: 时长值，可为数字或字符串
-    
-    Returns:
-        分钟数，无效返回 None
-    """
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -51,18 +29,6 @@ def parse_duration_minutes(value: Any) -> int | None:
 
 
 def _parse_filters(genre: str | None = None, year: str | None = None, country: str | None = None) -> tuple[str, list[Any]]:
-    """解析筛选条件为 SQL WHERE 子句和参数列表
-    
-    支持多值筛选（逗号分隔），各条件间为 AND 关系，同一条件内为 OR 关系
-    
-    Args:
-        genre: 类型筛选，逗号分隔
-        year: 年份筛选，逗号分隔，支持"更早"表示2010年前
-        country: 国家筛选，逗号分隔，支持别名匹配
-    
-    Returns:
-        (where_clause, params): WHERE 子句字符串和参数列表
-    """
     conditions: list[str] = []
     params: list[Any] = []
 
@@ -108,15 +74,6 @@ def _parse_filters(genre: str | None = None, year: str | None = None, country: s
 
 
 def _fetch_column(column: str, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取指定列的数据，应用筛选条件
-    
-    Args:
-        column: 数据库列名
-        genre/year/country: 筛选条件
-    
-    Returns:
-        包含指定列的字典列表
-    """
     where, params = _parse_filters(genre, year, country)
     sql = f"SELECT {column} FROM movies WHERE {where} AND {column} IS NOT NULL AND {column} != ''"
     with get_mysql() as conn:
@@ -126,16 +83,6 @@ def _fetch_column(column: str, genre: str | None = None, year: str | None = None
 
 
 def _movie_row(row: dict[str, Any]) -> dict[str, Any]:
-    """将数据库电影记录转换为统一格式的字典
-    
-    提取多值字段（导演、国家、语言）的第一个值，统一字段命名
-    
-    Args:
-        row: 数据库原始记录
-    
-    Returns:
-        标准化的电影信息字典
-    """
     directors = row.get("directors") or ""
     director = split_pipe(directors)[0] if directors else None
     countries = row.get("countries") or ""
@@ -159,15 +106,6 @@ def _movie_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def genre_distribution(limit: int = 15, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取电影类型分布统计
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        类型分布列表 [{"name": "类型名", "count": 数量}, ...]
-    """
     counter: Counter[str] = Counter()
     for row in _fetch_column("genres", genre, year, country):
         for name in split_pipe(row["genres"]):
@@ -176,14 +114,6 @@ def genre_distribution(limit: int = 15, genre: str | None = None, year: str | No
 
 
 def year_distribution(genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取电影年份分布统计
-    
-    Args:
-        genre/year/country: 筛选条件
-    
-    Returns:
-        年份分布列表 [{"year": 年份, "count": 数量}, ...]
-    """
     where, params = _parse_filters(genre, year, country)
     with get_mysql() as conn:
         with conn.cursor() as cursor:
@@ -201,15 +131,6 @@ def year_distribution(genre: str | None = None, year: str | None = None, country
 
 
 def country_distribution(limit: int = 12, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取电影国家分布统计
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        国家分布列表 [{"name": "国家名", "value": 数量}, ...]
-    """
     counter: Counter[str] = Counter()
     for row in _fetch_column("countries", genre, year, country):
         for name in extract_canonical_countries(row["countries"]):
@@ -222,16 +143,6 @@ def analytics_filter_options(
     country_limit: int = 20,
     year_from: int = 2010,
 ) -> dict[str, list[Any]]:
-    """获取筛选选项数据（用于前端筛选器）
-    
-    Args:
-        genre_limit: 类型选项数量限制
-        country_limit: 国家选项数量限制
-        year_from: 年份起始值（早于此值的合并为"更早"）
-    
-    Returns:
-        包含 genres, years, countries 三个列表的字典
-    """
     with get_mysql() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -264,16 +175,6 @@ def analytics_filter_options(
 
 
 def rating_distribution(genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取电影评分区间分布统计
-    
-    按评分区间分组：0-4, 4-6, 6-7, 7-8, 8-10
-    
-    Args:
-        genre/year/country: 筛选条件
-    
-    Returns:
-        评分分布列表 [{"range": "区间", "count": 数量}, ...]
-    """
     buckets = {"0-4": 0, "4-6": 0, "6-7": 0, "7-8": 0, "8-10": 0}
     where, params = _parse_filters(genre, year, country)
     with get_mysql() as conn:
@@ -295,11 +196,6 @@ def rating_distribution(genre: str | None = None, year: str | None = None, count
 
 
 def rating_histogram() -> list[dict[str, Any]]:
-    """获取评分直方图数据（1-10分）
-    
-    Returns:
-        评分直方图列表 [{"score": "分数", "count": 数量}, ...]
-    """
     bins = {f"{i}": 0 for i in range(1, 11)}
     with get_mysql() as conn:
         with conn.cursor() as cursor:
@@ -311,17 +207,6 @@ def rating_histogram() -> list[dict[str, Any]]:
 
 
 def top_movies(limit: int = 12, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取评分最高的电影列表
-    
-    按评分降序、评分人数降序排序
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        电影列表，包含完整电影信息
-    """
     where, params = _parse_filters(genre, year, country)
     params.append(limit)
     with get_mysql() as conn:
@@ -340,17 +225,6 @@ def top_movies(limit: int = 12, genre: str | None = None, year: str | None = Non
 
 
 def featured_movies(limit: int = 12, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取精选电影列表（随机选择高评分电影）
-    
-    要求评分>0且评分人数>100，随机排序
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        电影列表，包含完整电影信息
-    """
     where, params = _parse_filters(genre, year, country)
     params.append(limit)
     with get_mysql() as conn:
@@ -369,17 +243,6 @@ def featured_movies(limit: int = 12, genre: str | None = None, year: str | None 
 
 
 def get_all_movies(limit: int = 500, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取电影列表（用于数据导出）
-    
-    返回完整字段，包含摘要、获奖信息等
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        电影列表，包含完整电影信息
-    """
     where, params = _parse_filters(genre, year, country)
     params.append(limit)
     with get_mysql() as conn:
@@ -399,14 +262,6 @@ def get_all_movies(limit: int = 500, genre: str | None = None, year: str | None 
 
 
 def actor_wordcloud(limit: int = 40) -> list[dict[str, Any]]:
-    """获取演员词云数据（不应用筛选）
-    
-    Args:
-        limit: 返回数量限制
-    
-    Returns:
-        演员词云数据 [{"name": "演员名", "value": 数量}, ...]
-    """
     counter: Counter[str] = Counter()
     with get_mysql() as conn:
         with conn.cursor() as cursor:
@@ -419,15 +274,6 @@ def actor_wordcloud(limit: int = 40) -> list[dict[str, Any]]:
 
 
 def actor_distribution(limit: int = 10, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取演员分布统计
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        演员分布列表 [{"name": "演员名", "count": 数量}, ...]
-    """
     counter: Counter[str] = Counter()
     for row in _fetch_column("actors", genre, year, country):
         for name in split_pipe(row["actors"]):
@@ -437,11 +283,6 @@ def actor_distribution(limit: int = 10, genre: str | None = None, year: str | No
 
 
 def source_distribution() -> list[dict[str, Any]]:
-    """获取电影来源分布统计
-    
-    Returns:
-        来源分布列表 [{"name": "来源", "value": 数量}, ...]
-    """
     with get_mysql() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -455,16 +296,6 @@ def source_distribution() -> list[dict[str, Any]]:
 
 
 def rating_leaderboard(limit: int = 10) -> list[dict[str, Any]]:
-    """获取评分人数排行榜（不应用筛选）
-    
-    按评分人数降序排序，要求评分>0且评分人数>100
-    
-    Args:
-        limit: 返回数量限制
-    
-    Returns:
-        排行榜列表，包含海报URL
-    """
     with get_mysql() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -498,18 +329,6 @@ def overview_stats(
     user_count: int = 0,
     rating_count: int = 0,
 ) -> dict[str, Any]:
-    """获取数据概览统计
-    
-    包含电影总数、平均评分、总评分人数、总影评数等
-    
-    Args:
-        genre/year/country: 筛选条件
-        user_count: 用户数量（外部传入）
-        rating_count: 评分数量（外部传入）
-    
-    Returns:
-        统计概览字典
-    """
     where, params = _parse_filters(genre, year, country)
     with get_mysql() as conn:
         with conn.cursor() as cursor:
@@ -549,15 +368,6 @@ def overview_stats(
 
 
 def language_distribution(limit: int = 10, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取语言分布统计
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        语言分布列表 [{"name": "语言", "value": 数量}, ...]
-    """
     counter: Counter[str] = Counter()
     for row in _fetch_column("languages", genre, year, country):
         for name in extract_canonical_languages(row["languages"]):
@@ -566,16 +376,6 @@ def language_distribution(limit: int = 10, genre: str | None = None, year: str |
 
 
 def duration_distribution(genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取电影时长分布统计
-    
-    按时长区间分组：<60, 60-90, 90-120, 120-150, >150分钟
-    
-    Args:
-        genre/year/country: 筛选条件
-    
-    Returns:
-        时长分布列表 [{"range": "区间", "count": 数量}, ...]
-    """
     buckets = {"60分钟以下": 0, "60-90分钟": 0, "90-120分钟": 0, "120-150分钟": 0, "150分钟以上": 0}
     where, params = _parse_filters(genre, year, country)
     with get_mysql() as conn:
@@ -602,15 +402,6 @@ def duration_distribution(genre: str | None = None, year: str | None = None, cou
 
 
 def director_distribution(limit: int = 10, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取导演分布统计
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        导演分布列表 [{"name": "导演名", "count": 数量}, ...]
-    """
     counter: Counter[str] = Counter()
     for row in _fetch_column("directors", genre, year, country):
         for name in split_pipe(row["directors"]):
@@ -620,16 +411,6 @@ def director_distribution(limit: int = 10, genre: str | None = None, year: str |
 
 
 def review_count_distribution(genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取影评数量分布统计
-    
-    按影评数区间分组：0-100, 100-500, 500-1000, 1000-5000, 5000+
-    
-    Args:
-        genre/year/country: 筛选条件
-    
-    Returns:
-        影评分布列表 [{"range": "区间", "count": 数量}, ...]
-    """
     buckets = {"0-100": 0, "100-500": 0, "500-1000": 0, "1000-5000": 0, "5000+": 0}
     where, params = _parse_filters(genre, year, country)
     with get_mysql() as conn:
@@ -654,17 +435,6 @@ def review_count_distribution(genre: str | None = None, year: str | None = None,
 
 
 def country_genre_correlation(limit: int = 8, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取国家-类型关联统计
-    
-    统计国家与类型的组合频率，用于探索不同国家偏好的电影类型
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        关联统计列表 [{"name": "国家-类型", "value": 数量}, ...]
-    """
     counter: Counter[str] = Counter()
     where, params = _parse_filters(genre, year, country)
     with get_mysql() as conn:
@@ -688,16 +458,6 @@ def country_genre_correlation(limit: int = 8, genre: str | None = None, year: st
 
 
 def rating_duration_correlation(genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取评分-时长相关性数据（散点图）
-    
-    抽取电影评分和时长数据，用于分析两者之间的相关性
-    
-    Args:
-        genre/year/country: 筛选条件
-    
-    Returns:
-        相关性数据列表 [{"rating": 评分, "duration": 时长}, ...]
-    """
     where, params = _parse_filters(genre, year, country)
     results: list[dict[str, Any]] = []
     with get_mysql() as conn:
@@ -723,17 +483,6 @@ def rating_duration_correlation(genre: str | None = None, year: str | None = Non
 
 
 def award_distribution(limit: int = 10, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取获奖情况分布统计
-    
-    统计电影是否有获奖或提名记录
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        获奖分布列表 [{"name": "有获奖/提名"|"无", "value": 数量}, ...]
-    """
     counter: Counter[str] = Counter()
     for row in _fetch_column("awards", genre, year, country):
         awards_text = (row["awards"] or "").strip()
@@ -747,17 +496,7 @@ def award_distribution(limit: int = 10, genre: str | None = None, year: str | No
 
 
 def wordcloud_data(limit: int = 60, genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取类型词云数据
-    
-    组合单类型标签和2-3个类型的组合标签，生成丰富的词云内容
-    
-    Args:
-        limit: 返回数量限制
-        genre/year/country: 筛选条件
-    
-    Returns:
-        词云数据列表 [{"name": "标签", "value": 数量}, ...]
-    """
+    """单类型 + 2~3 标签的真实组合，控制词条数量。"""
     single_counter: Counter[str] = Counter()
     signature_counter: Counter[str] = Counter()
     for row in _fetch_column("genres", genre, year, country):
@@ -780,16 +519,6 @@ def wordcloud_data(limit: int = 60, genre: str | None = None, year: str | None =
 
 
 def monthly_release_distribution(genre: str | None = None, year: str | None = None, country: str | None = None) -> list[dict[str, Any]]:
-    """获取月度上映分布统计
-    
-    统计电影在一年中各月份的上映数量
-    
-    Args:
-        genre/year/country: 筛选条件
-    
-    Returns:
-        月度分布列表 [{"month": "月份", "count": 数量}, ...]
-    """
     where, params = _parse_filters(genre, year, country)
     month_names = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
     result = {name: 0 for name in month_names}

@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { movieApi } from '../api'
 
@@ -13,27 +13,17 @@ const router = useRouter()
 const keyword = ref('')
 const suggestions = ref([])
 const popularMovies = ref([])
-const loadingPopular = ref(false)
 const inputRef = ref(null)
 let timer = null
 
-async function loadPopular(force = false) {
-  if (!force && popularMovies.value.length) return
-  loadingPopular.value = true
+async function loadPopular() {
+  if (popularMovies.value.length) return
   try {
     const { data } = await movieApi.home()
-    popularMovies.value = (data.popular || []).slice(0, 12)
+    popularMovies.value = (data.popular || []).slice(0, 8)
   } catch {
     popularMovies.value = []
-  } finally {
-    loadingPopular.value = false
   }
-}
-
-async function preparePanel() {
-  await loadPopular(true)
-  await nextTick()
-  inputRef.value?.focus()
 }
 
 watch(
@@ -44,16 +34,11 @@ watch(
       suggestions.value = []
       return
     }
-    await preparePanel()
+    await loadPopular()
+    await nextTick()
+    inputRef.value?.focus()
   },
-  { immediate: true },
 )
-
-onMounted(() => {
-  if (props.open) {
-    preparePanel()
-  }
-})
 
 watch(keyword, (val) => {
   clearTimeout(timer)
@@ -134,36 +119,27 @@ function onKeydown(event) {
         </button>
       </div>
 
-      <div v-else-if="keyword.trim() && !suggestions.length" class="header-search__empty">
-        未找到相关电影，按 Enter 查看全部搜索结果
+      <div v-else-if="popularMovies.length" class="header-search__section">
+        <p class="header-search__section-title">
+          <span class="header-search__trend-icon" aria-hidden="true">↗</span>
+          热门电影
+        </p>
+        <button
+          v-for="item in popularMovies"
+          :key="item.movie_id"
+          type="button"
+          class="header-search__item"
+          @click="submitSearch(item.title)"
+        >
+          <span class="header-search__item-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" />
+            </svg>
+          </span>
+          <span class="header-search__item-text">{{ item.title }}</span>
+          <span v-if="item.release_year" class="header-search__item-meta">{{ item.release_year }}</span>
+        </button>
       </div>
-
-      <template v-else>
-        <div v-if="loadingPopular" class="header-search__empty">正在加载热门电影…</div>
-
-        <div v-else-if="popularMovies.length" class="header-search__section header-search__trend-list">
-          <p class="header-search__section-title">
-            <span class="header-search__trend-icon" aria-hidden="true">↗</span>
-            趋势
-          </p>
-          <button
-            v-for="item in popularMovies"
-            :key="`list-${item.movie_id}`"
-            type="button"
-            class="header-search__item header-search__item--trend"
-            @click="submitSearch(item.title)"
-          >
-            <span class="header-search__item-icon" aria-hidden="true">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" />
-              </svg>
-            </span>
-            <span class="header-search__item-text">{{ item.title }}</span>
-          </button>
-        </div>
-
-        <div v-else class="header-search__empty">暂无热门数据，请确认后端已启动</div>
-      </template>
     </div>
   </div>
 </template>

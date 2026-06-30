@@ -1,11 +1,11 @@
 import re
 
-import requests
+from services.http_client import external_get
 
 from config import TMDB_API_KEY
 
 TMDB_ID_RE = re.compile(r"/movie/(\d+)")
-SEARCH_TIMEOUT = 4
+SEARCH_TIMEOUT = 12
 
 _tmdb_id_cache: dict[str, str] = {}
 
@@ -90,7 +90,7 @@ def search_tmdb_id(title: str, aliases: str = "", release_year: int | None = Non
             }
             if release_year:
                 params["primary_release_year"] = int(release_year)
-            response = requests.get(
+            response = external_get(
                 "https://api.themoviedb.org/3/search/movie",
                 params=params,
                 headers=headers,
@@ -147,7 +147,7 @@ def fetch_tmdb_backdrop_url(tmdb_id: str) -> str | None:
     if not TMDB_API_KEY or not tmdb_id:
         return None
     try:
-        response = requests.get(
+        response = external_get(
             f"https://api.themoviedb.org/3/movie/{tmdb_id}",
             params={"api_key": TMDB_API_KEY, "language": "zh-CN"},
             headers={"User-Agent": "FYWZ-Movies/1.0"},

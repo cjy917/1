@@ -17,6 +17,40 @@ import MediaPlayer from './MediaPlayer.vue'
 
 const props = defineProps({
   movie: { type: Object, required: true },
+  recommendMode: { type: Boolean, default: false },
+})
+
+const ALGO_TAG_META = {
+  als: { label: 'ALS', className: 'algo-tag--als' },
+  graphx: { label: 'GraphX', className: 'algo-tag--graphx' },
+  content: { label: 'Content', className: 'algo-tag--content' },
+  cold_start: { label: '热门', className: 'algo-tag--popular' },
+  popular: { label: '热门', className: 'algo-tag--popular' },
+}
+
+const algoTags = computed(() => {
+  const raw = props.movie.algorithm
+  if (!raw) return []
+  const keys =
+    raw === 'cold_start' || raw === 'popular'
+      ? ['popular']
+      : String(raw).split('+').filter(Boolean)
+  return keys
+    .map((key) => ALGO_TAG_META[key])
+    .filter(Boolean)
+})
+
+const displayScore = computed(() => {
+  const rating = props.movie.rating
+  if (rating != null && rating !== '' && !Number.isNaN(Number(rating))) {
+    return Number(rating).toFixed(1)
+  }
+  const score = props.movie.score
+  if (score != null && score !== '' && !Number.isNaN(Number(score))) {
+    const num = Number(score)
+    return num <= 1 ? (num * 10).toFixed(1) : num.toFixed(1)
+  }
+  return null
 })
 
 const router = useRouter()
@@ -49,7 +83,7 @@ const savedScore = computed(() => {
   return props.movie.my_rating || 0
 })
 
-const starScore = computed(() => savedScore.value)
+const starScore = computed(() => savedScore.value / 2)
 
 const canPlayTrailer = computed(() => isTrailerPlayable(trailer.value))
 
@@ -145,7 +179,7 @@ async function onStarChange(value) {
       }
       return
     }
-    const score = value
+    const score = value * 2
     await ratingsStore.save(props.movie.movie_id, score)
     ElMessage.success('评分成功')
   } catch {
@@ -212,6 +246,12 @@ onBeforeUnmount(() => {
       </div>
 
       <span
+        v-if="recommendMode && displayScore"
+        class="absolute left-1.5 top-1.5 z-20 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-bold text-[#f5c518]"
+      >
+        {{ displayScore }}
+      </span>
+      <span
         v-if="savedScore > 0"
         class="absolute right-1.5 top-1.5 z-20 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-bold text-[#01B4E4]"
       >
@@ -226,7 +266,7 @@ onBeforeUnmount(() => {
           :model-value="starScore"
           allow-half
           clearable
-          :max="10"
+          :max="5"
           :disabled="saving"
           :colors="['#01B4E4', '#01B4E4', '#01B4E4']"
           void-color="#6b7280"
@@ -238,7 +278,22 @@ onBeforeUnmount(() => {
     </div>
     <div class="mt-2 px-0.5">
       <h3 class="line-clamp-2 text-[15px] font-bold leading-5">{{ movie.title }}</h3>
-      <p class="mt-1 text-sm text-muted">{{ displayDate }}</p>
+      <div v-if="recommendMode && algoTags.length" class="algo-tags mt-1.5 flex flex-wrap gap-1">
+        <span
+          v-for="tag in algoTags"
+          :key="tag.label"
+          class="algo-tag"
+          :class="tag.className"
+        >
+          {{ tag.label }}
+        </span>
+      </div>
+      <p v-if="movie.reason" class="reason-text mt-1.5">{{ movie.reason }}</p>
+      <p class="mt-1 text-sm text-muted">
+        <template v-if="recommendMode && displayScore">{{ displayScore }} 分</template>
+        <template v-if="recommendMode && displayScore && displayDate"> · </template>
+        {{ displayDate }}
+      </p>
     </div>
   </article>
 </template>
@@ -269,11 +324,50 @@ onBeforeUnmount(() => {
 }
 
 .card-star-rate :deep(.el-rate__icon) {
-  font-size: 0.95rem;
-  margin-right: 0;
+  font-size: 1.35rem;
+  margin-right: 0.05rem;
 }
 
 .card-star-rate :deep(.el-rate__decimal) {
-  font-size: 0.95rem;
+  font-size: 1.35rem;
+}
+
+.reason-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--fywz-muted, #9aa7c0);
+}
+
+.algo-tag {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.algo-tag--als {
+  background: rgba(37, 99, 235, 0.15);
+  color: #2563eb;
+}
+
+.algo-tag--graphx {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.algo-tag--content {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.algo-tag--popular {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
 }
 </style>

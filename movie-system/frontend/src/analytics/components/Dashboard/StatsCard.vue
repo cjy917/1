@@ -1,5 +1,4 @@
 <template>
-  <!-- 统计卡片组件 -->
   <div class="stats-card">
     <div class="stats-icon">
       <span class="icon">{{ icon }}</span>
@@ -14,28 +13,16 @@
 <script setup>
 import { computed } from 'vue'
 
-/**
- * 统计卡片组件
- * 
- * 展示单个统计指标，包含图标、标签和格式化后的数值
- * 支持数值自动格式化（亿/万/K 单位转换）
- */
-
 const props = defineProps({
-  /** 图标（emoji） */
   icon: String,
-  /** 指标标签 */
   label: String,
-  /** 指标值 */
   value: [Number, String],
-  /** 小数位数（null 表示自动） */
   decimals: {
     type: Number,
     default: null
   }
 })
 
-/** 格式化后的数值 */
 const formattedValue = computed(() => {
   if (typeof props.value === 'number') {
     if (props.value >= 100000000) {

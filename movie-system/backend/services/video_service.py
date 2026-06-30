@@ -23,9 +23,7 @@ def _local_candidates(movie_id: str, quality: str = "auto") -> list[Path]:
 
     override = LOCAL_VIDEO_FILES.get(int(movie_id)) if movie_id.isdigit() else None
     if override:
-        override_name = override.lower()
-        if quality == "auto" or f"_{quality}" in override_name or f".{quality}p" in override_name:
-            add(VIDEO_DIR / override)
+        add(VIDEO_DIR / override)
 
     quality_map = {
         "720": [f"{movie_id}_720", f"{movie_id}"],

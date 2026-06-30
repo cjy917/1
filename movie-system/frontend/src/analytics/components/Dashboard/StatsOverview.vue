@@ -1,5 +1,4 @@
 <template>
-  <!-- 数据概览卡片组 -->
   <div class="stats-overview">
     <StatsCard 
       icon="🎬"
@@ -28,18 +27,7 @@
 <script setup>
 import StatsCard from './StatsCard.vue'
 
-/**
- * 数据概览组件
- * 
- * 展示数据分析页面顶部的四个核心统计指标：
- * - 电影总数
- * - 平均评分
- * - 总评分人数
- * - 总影评数
- */
-
 defineProps({
-  /** 概览统计数据 */
   overview: {
     type: Object,
     default: null

@@ -134,6 +134,39 @@ class RecommendationCache(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class SparkRecommendation(db.Model):
+    """Spark 离线推荐结果（ALS / GraphX / Content）导入表。"""
+
+    __tablename__ = "spark_recommendations"
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "movie_id", "algorithm", name="uq_spark_rec"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    movie_id = db.Column(db.BigInteger, nullable=False, index=True)
+    score = db.Column(db.Float, nullable=False)
+    algorithm = db.Column(db.String(32), nullable=False, default="als")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self, movie: dict | None = None) -> dict:
+        data = {
+            "movie_id": self.movie_id,
+            "score": round(self.score, 4),
+            "algorithm": self.algorithm,
+        }
+        if movie:
+            data.update(
+                {
+                    "title": movie.get("title"),
+                    "poster_url": movie.get("poster_url"),
+                    "genres": movie.get("genres"),
+                    "rating": movie.get("rating"),
+                }
+            )
+        return data
+
+
 class PosterCache(db.Model):
     __tablename__ = "poster_cache"
 
