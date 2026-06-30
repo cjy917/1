@@ -1,4 +1,5 @@
 <template>
+  <!-- 详情弹窗组件 -->
   <Teleport to="body">
     <div v-if="visible" class="modal-overlay" @click.self="handleClose">
       <div class="modal-content">
@@ -7,6 +8,7 @@
           <button @click="handleClose" class="btn-close">×</button>
         </div>
         <div class="modal-body">
+          <!-- 导演详情 -->
           <div v-if="type === 'director'" class="drilldown-info">
             <div class="info-row">
               <span class="info-label">导演</span>
@@ -28,6 +30,7 @@
             </div>
           </div>
           
+          <!-- 演员详情 -->
           <div v-else-if="type === 'actor'" class="drilldown-info">
             <div class="info-row">
               <span class="info-label">演员</span>
@@ -57,9 +60,19 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 
+/**
+ * 详情弹窗组件
+ * 
+ * 用于展示导演或演员的详细信息和作品列表
+ * 支持点击图表元素后钻取查看详情
+ */
+
 const props = defineProps({
+  /** 是否显示弹窗 */
   visible: Boolean,
+  /** 详情类型: 'director' | 'actor' */
   type: String,
+  /** 详情数据 */
   data: Object
 })
 
@@ -67,6 +80,7 @@ const emit = defineEmits(['update:visible'])
 
 const movies = ref([])
 
+/** 根据类型计算弹窗标题 */
 const modalTitle = computed(() => {
   switch (props.type) {
     case 'director': return '导演详情'
@@ -75,20 +89,24 @@ const modalTitle = computed(() => {
   }
 })
 
+/** 监听弹窗显示状态，加载详情数据 */
 watch(() => props.visible, async (newVal) => {
   if (newVal && props.data) {
     await loadDetailData()
   }
 })
 
+/** 加载详情数据 */
 async function loadDetailData() {
   movies.value = []
 }
 
+/** 关闭弹窗 */
 function handleClose() {
   emit('update:visible', false)
 }
 
+/** 格式化评分显示 */
 function formatRating(rating) {
   if (typeof rating !== 'number') return '0.0'
   return rating.toFixed(1)

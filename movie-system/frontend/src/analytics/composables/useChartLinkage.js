@@ -1,22 +1,31 @@
 import { ref, computed } from 'vue'
 
+/**
+ * 图表联动交互 Composable
+ * 
+ * 管理数据分析页面的图表点击交互逻辑，包括：
+ * - 筛选条件状态管理（类型、国家、年份、语言）
+ * - 钻取详情弹窗控制（导演、演员、电影详情）
+ * - 图表点击事件统一处理
+ */
+
 export function useChartLinkage() {
-  // 筛选条件状态
+  /** 筛选条件状态 */
   const filters = ref({
     genre: null,      // 选中的类型
     country: null,    // 选中的国家
-    year: null,      // 选中的年份
+    year: null,       // 选中的年份
     language: null    // 选中的语言
   })
 
-  // 钻取详情状态
+  /** 钻取详情状态 */
   const drilldown = ref({
-    visible: false,
-    type: null,      // 'director' | 'actor' | 'movie'
-    data: null
+    visible: false,   // 是否显示
+    type: null,       // 钻取类型: 'director' | 'actor' | 'movie'
+    data: null        // 钻取数据
   })
 
-  // 更新筛选条件
+  /** 更新筛选条件 */
   function setFilter(key, value) {
     filters.value = {
       ...filters.value,
@@ -24,7 +33,7 @@ export function useChartLinkage() {
     }
   }
 
-  // 清除所有筛选
+  /** 清除所有筛选条件 */
   function clearFilters() {
     filters.value = {
       genre: null,
@@ -34,7 +43,7 @@ export function useChartLinkage() {
     }
   }
 
-  // 打开钻取详情
+  /** 打开钻取详情弹窗 */
   function openDrilldown(type, data) {
     drilldown.value = {
       visible: true,
@@ -43,7 +52,7 @@ export function useChartLinkage() {
     }
   }
 
-  // 关闭钻取详情
+  /** 关闭钻取详情弹窗 */
   function closeDrilldown() {
     drilldown.value = {
       visible: false,
@@ -52,13 +61,18 @@ export function useChartLinkage() {
     }
   }
 
-  // 处理图表点击事件
+  /**
+   * 处理图表点击事件
+   * 
+   * @param {string} chartType - 图表类型（genres/countries/languages/directors/actors/years）
+   * @param {Object} params - ECharts 点击参数
+   */
   function handleChartClick(chartType, params) {
     const { name, seriesType } = params
     
     switch (seriesType) {
       case 'pie':
-        // 饼图点击 - 通常设置类型筛选
+        // 饼图点击 - 设置筛选条件
         if (chartType === 'genres' || chartType === 'countries' || chartType === 'languages') {
           const filterKey = chartType === 'genres' ? 'genre' : 
                            chartType === 'countries' ? 'country' : 'language'
@@ -78,7 +92,7 @@ export function useChartLinkage() {
     }
   }
 
-  // 检查是否有筛选条件
+  /** 检查是否有激活的筛选条件 */
   const hasActiveFilters = computed(() => {
     return Object.values(filters.value).some(v => v !== null)
   })

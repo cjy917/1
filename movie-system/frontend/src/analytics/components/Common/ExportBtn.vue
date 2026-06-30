@@ -1,4 +1,5 @@
 <template>
+  <!-- 导出按钮组件 -->
   <div class="export-btn-wrapper">
     <button @click="toggleMenu" class="action-btn action-btn-outline">
       <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -24,7 +25,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 
+/**
+ * 数据导出按钮组件
+ * 
+ * 支持 CSV 和 JSON 两种格式导出
+ * 点击外部自动关闭下拉菜单
+ */
+
 const props = defineProps({
+  /** 待导出的数据对象 */
   data: {
     type: Object,
     default: () => ({})
@@ -33,10 +42,12 @@ const props = defineProps({
 
 const showMenu = ref(false)
 
+/** 切换导出菜单显示状态 */
 function toggleMenu() {
   showMenu.value = !showMenu.value
 }
 
+/** 处理导出操作 */
 function handleExport(format) {
   showMenu.value = false
 
@@ -55,13 +66,15 @@ function handleExport(format) {
   downloadFile(content, filename, mimeType)
 }
 
+/** 将数据转换为 CSV 格式 */
 function convertToCSV(data) {
+  // 如果包含 movies 数组，使用专门的转换方法
   if (data.movies && Array.isArray(data.movies) && data.movies.length > 0) {
     return moviesToCSV(data.movies)
   }
 
+  // 通用转换：遍历对象键值对
   const rows = []
-
   for (const [key, value] of Object.entries(data)) {
     if (Array.isArray(value)) {
       rows.push([key, JSON.stringify(value)])
@@ -73,6 +86,7 @@ function convertToCSV(data) {
   return rows.map(row => row.join(',')).join('\n')
 }
 
+/** 将电影数据转换为 CSV 格式 */
 function moviesToCSV(movies) {
   const headers = ['电影ID', '标题', '评分', '评分人数', '类型', '年份', '导演', '时长', '国家', '语言', '简介', '获奖信息']
   const rows = movies.map(movie => [
@@ -93,6 +107,7 @@ function moviesToCSV(movies) {
   return [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
 }
 
+/** CSV 特殊字符转义 */
 function escapeCSV(str) {
   if (str == null) return ''
   const escaped = String(str).replace(/"/g, '""')
@@ -101,6 +116,7 @@ function escapeCSV(str) {
     : escaped
 }
 
+/** 下载文件 */
 function downloadFile(content, filename, mimeType) {
   const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
@@ -113,6 +129,7 @@ function downloadFile(content, filename, mimeType) {
   URL.revokeObjectURL(url)
 }
 
+/** 点击外部关闭菜单 */
 function handleClickOutside(event) {
   if (!event.target.closest('.export-btn-wrapper')) {
     showMenu.value = false

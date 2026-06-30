@@ -110,6 +110,17 @@ function startPlaybackSlowTimer() {
 
 const heroOverlay = computed(() => movie.value?.hero_theme?.overlay || '')
 
+/**
+ * 加载电影详情数据（页面初始化时调用）
+ * 
+ * 用户从数据分析页面点击电影海报后，路由跳转到 /movie/{id}，
+ * 此函数在 onMounted 和路由参数变化时自动调用。
+ * 
+ * 加载流程：
+ * 1. 获取路由参数中的电影ID
+ * 2. 调用 movieApi.detail(id) 获取电影基础信息
+ * 3. 并行加载：相似电影、评论、播放资源、预告片
+ */
 async function load() {
   const id = route.params.id
   pageLoading.value = true
@@ -119,6 +130,7 @@ async function load() {
   movieWantAutoplay.value = false
   moviePlaybackError.value = false
   try {
+    // 调用电影详情接口获取基础信息
     const { data } = await movieApi.detail(id)
     movie.value = data
     savedScore.value = data.my_rating || 0
@@ -129,10 +141,11 @@ async function load() {
     activeTab.value = 'trailer'
     pageLoading.value = false
 
-    loadSimilar(id)
-    loadComments()
-    loadPlayback()
-    loadTrailerAsync()
+    // 并行加载其他数据
+    loadSimilar(id)           // 相似电影推荐
+    loadComments()            // 用户评论列表
+    loadPlayback()            // 正片播放资源
+    loadTrailerAsync()        // 预告片资源
   } catch {
     pageLoading.value = false
   }

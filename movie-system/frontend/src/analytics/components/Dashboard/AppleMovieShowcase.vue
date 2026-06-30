@@ -1,4 +1,5 @@
 <template>
+  <!-- 苹果风格电影轮播组件 -->
   <div class="carousel-wrap" ref="wrapRef">
     <div class="carousel-box" ref="carouselRef">
       <div 
@@ -20,26 +21,38 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 
+/**
+ * 苹果风格电影轮播组件
+ * 
+ * 实现无限滚动的电影海报轮播，带有视差深度效果：
+ * - 中间的海报最大最清晰
+ * - 两侧的海报逐渐缩小、变暗、变淡
+ * - 自动循环滚动
+ */
+
 const props = defineProps({
+  /** 电影列表 */
   movies: {
     type: Array,
     default: () => []
   }
 })
 
-const wrapRef = ref(null)
-const carouselRef = ref(null)
+const wrapRef = ref(null)       // 轮播容器引用
+const carouselRef = ref(null)   // 轮播盒子引用
+const allMovies = ref([...props.movies])  // 双倍电影列表（实现无限滚动）
 
-const allMovies = ref([...props.movies])
-
+/** 监听电影列表变化，复制一份实现无缝循环 */
 watch(() => props.movies, (newMovies) => {
   allMovies.value = [...newMovies, ...newMovies]
 }, { immediate: true })
 
+/** 获取海报URL */
 function getPosterUrl(movieId) {
   return `/api/posters/${movieId}`
 }
 
+/** 格式化评分（保留1位小数） */
 function formatRating(rating) {
   if (typeof rating !== 'number') return '0.0'
   return rating.toFixed(1)
@@ -47,6 +60,15 @@ function formatRating(rating) {
 
 let animationId = null
 
+/**
+ * 更新深度效果
+ * 
+ * 根据海报距离容器中心的距离，动态调整：
+ * - scale: 缩放（中间最大）
+ * - brightness: 亮度（中间最亮）
+ * - opacity: 透明度（中间最清晰）
+ * - z-index: 层级（中间最高）
+ */
 function updateDepthEffect() {
   const wrap = wrapRef.value
   const carousel = carouselRef.value
@@ -82,6 +104,14 @@ function updateDepthEffect() {
 
 const emit = defineEmits(['movie-click'])
 
+/**
+ * 处理电影卡片点击事件（点击封面触发）
+ * 
+ * 将点击事件向上冒泡到父组件 AnalyticsView，
+ * 由父组件统一处理路由跳转
+ * 
+ * @param {Object} movie - 被点击的电影对象
+ */
 function handleMovieClick(movie) {
   emit('movie-click', movie)
 }

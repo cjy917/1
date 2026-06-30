@@ -188,10 +188,33 @@ def create_app() -> Flask:
 
     @app.route("/api/movies/<int:movie_id>")
     def movie_detail(movie_id: int):
+        """
+        获取电影详情接口（点击封面后调用）
+        
+        用户从数据分析页面点击电影海报/封面后，前端路由跳转到电影详情页，
+        详情页加载时调用此接口获取完整的电影信息。
+        
+        Args:
+            movie_id: 电影ID（从URL路径参数获取）
+        
+        Returns:
+            电影详情JSON，包含：
+            - 基本信息：标题、评分、年份、时长、类型、导演、演员等
+            - 用户相关：我的评分、是否收藏、是否在待看列表、是否在片单
+            - 评论数据：爬取的精选短评列表
+            - 主题配置：hero主题样式配置
+            
+        HTTP方法: GET
+        路由: /api/movies/{movie_id}
+        """
         movie = get_movie_by_id(movie_id)
         if not movie:
             return jsonify({"error": "电影不存在"}), 404
+        
+        # 解析爬取的评论数据
         movie["crawled_review_list"] = parse_crawled_reviews(movie.get("reviews"))
+        
+        # 获取当前用户的相关状态（评分、收藏、待看、片单）
         user_id = session.get("user_id")
         if user_id:
             rating = UserRating.query.filter_by(user_id=user_id, movie_id=movie_id).first()
@@ -203,11 +226,15 @@ def create_app() -> Flask:
             movie["is_watchlist"] = watchlist is not None
             movie["in_list"] = list_item is not None
         else:
+            # 未登录用户默认状态
             movie["my_rating"] = None
             movie["is_favorite"] = False
             movie["is_watchlist"] = False
             movie["in_list"] = False
+        
+        # 获取电影hero主题配置
         movie["hero_theme"] = get_movie_hero_theme(movie_id, movie.get("cover_path"))
+        
         return jsonify(movie)
 
     @app.route("/api/movies/<int:movie_id>/similar")

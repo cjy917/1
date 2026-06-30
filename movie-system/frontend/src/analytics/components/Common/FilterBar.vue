@@ -1,6 +1,8 @@
 <template>
+  <!-- 筛选栏组件 -->
   <div class="filter-bar">
     <div class="filter-group">
+      <!-- 类型筛选 -->
       <div class="filter-section">
         <span class="filter-label">类型</span>
         <div class="filter-tags">
@@ -22,6 +24,7 @@
         </div>
       </div>
 
+      <!-- 年份筛选 -->
       <div class="filter-section">
         <span class="filter-label">年份</span>
         <div class="filter-tags">
@@ -43,6 +46,7 @@
         </div>
       </div>
 
+      <!-- 国家筛选 -->
       <div class="filter-section">
         <span class="filter-label">国家</span>
         <div class="filter-tags">
@@ -65,6 +69,7 @@
       </div>
     </div>
 
+    <!-- 操作栏 -->
     <div class="filter-footer">
       <p v-if="hasActiveFilters" class="filter-hint">
         已选 {{ activeCount }} 项筛选条件
@@ -94,23 +99,35 @@
 import { ref, computed, watch } from 'vue'
 import ExportBtn from './ExportBtn.vue'
 
+/**
+ * 筛选栏组件
+ * 
+ * 提供类型、年份、国家三个维度的筛选功能
+ * 支持多选、清除和搜索操作
+ */
+
 const props = defineProps({
+  /** 类型列表 */
   genres: {
     type: Array,
     default: () => []
   },
+  /** 年份列表 */
   years: {
     type: Array,
     default: () => []
   },
+  /** 国家列表 */
   countries: {
     type: Array,
     default: () => []
   },
+  /** 当前筛选条件 */
   filters: {
     type: Object,
     default: () => ({})
   },
+  /** 导出数据 */
   exportData: {
     type: Object,
     default: () => ({})
@@ -122,6 +139,7 @@ const emit = defineEmits(['update:filters', 'search'])
 const selectedGenres = ref(props.filters.genre ? props.filters.genre.split(',') : [])
 const selectedYears = ref(parseYearTokens(props.filters.year))
 
+/** 解析年份字符串为数组 */
 function parseYearTokens(yearStr) {
   if (!yearStr) return []
   return yearStr.split(',').map((token) => {
@@ -131,16 +149,20 @@ function parseYearTokens(yearStr) {
     return Number.isNaN(parsed) ? trimmed : parsed
   })
 }
+
 const selectedCountries = ref(props.filters.country ? props.filters.country.split(',') : [])
 
+/** 是否有激活的筛选条件 */
 const hasActiveFilters = computed(() => {
   return selectedGenres.value.length > 0 || selectedYears.value.length > 0 || selectedCountries.value.length > 0
 })
 
+/** 激活的筛选条件数量 */
 const activeCount = computed(() => {
   return selectedGenres.value.length + selectedYears.value.length + selectedCountries.value.length
 })
 
+/** 获取当前筛选条件对象 */
 function currentFilters() {
   return {
     genre: selectedGenres.value.length > 0 ? selectedGenres.value.join(',') : null,
@@ -149,15 +171,18 @@ function currentFilters() {
   }
 }
 
+/** 同步筛选条件到父组件 */
 function syncFilters() {
   emit('update:filters', currentFilters())
 }
 
+/** 处理搜索按钮点击 */
 function handleSearch() {
   syncFilters()
   emit('search')
 }
 
+/** 切换类型选中状态 */
 function toggleGenre(genre) {
   const index = selectedGenres.value.indexOf(genre)
   if (index > -1) {
@@ -167,6 +192,7 @@ function toggleGenre(genre) {
   }
 }
 
+/** 切换年份选中状态 */
 function toggleYear(year) {
   const index = selectedYears.value.indexOf(year)
   if (index > -1) {
@@ -176,6 +202,7 @@ function toggleYear(year) {
   }
 }
 
+/** 切换国家选中状态 */
 function toggleCountry(country) {
   const index = selectedCountries.value.indexOf(country)
   if (index > -1) {
@@ -185,18 +212,22 @@ function toggleCountry(country) {
   }
 }
 
+/** 清除类型筛选 */
 function clearGenres() {
   selectedGenres.value = []
 }
 
+/** 清除年份筛选 */
 function clearYears() {
   selectedYears.value = []
 }
 
+/** 清除国家筛选 */
 function clearCountries() {
   selectedCountries.value = []
 }
 
+/** 清除所有筛选条件 */
 function handleClear() {
   selectedGenres.value = []
   selectedYears.value = []
@@ -205,6 +236,7 @@ function handleClear() {
   emit('search')
 }
 
+/** 监听外部筛选条件变化 */
 watch(() => props.filters, (newFilters) => {
   selectedGenres.value = newFilters.genre ? newFilters.genre.split(',') : []
   selectedYears.value = parseYearTokens(newFilters.year)

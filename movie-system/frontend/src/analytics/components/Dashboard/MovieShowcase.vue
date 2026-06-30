@@ -1,4 +1,5 @@
 <template>
+  <!-- 热门电影展示组件 -->
   <div class="movie-showcase">
     <div class="section-header">
       <h2 class="headline">🏆 热门电影</h2>
@@ -33,7 +34,14 @@
 </template>
 
 <script setup>
+/**
+ * 热门电影展示组件
+ * 
+ * 以网格形式展示评分最高的电影列表，包含海报、评分和年份信息
+ */
+
 defineProps({
+  /** 电影列表 */
   movies: {
     type: Array,
     default: () => []
@@ -42,14 +50,24 @@ defineProps({
 
 const emit = defineEmits(['movie-click'])
 
+/**
+ * 处理电影卡片点击事件（点击封面/卡片触发）
+ * 
+ * 将点击事件向上冒泡到父组件 AnalyticsView，
+ * 由父组件统一处理路由跳转
+ * 
+ * @param {Object} movie - 被点击的电影对象
+ */
 function handleMovieClick(movie) {
   emit('movie-click', movie)
 }
 
+/** 获取海报URL */
 function getPosterUrl(movieId) {
   return `/api/posters/${movieId}`
 }
 
+/** 截断标题（超过指定长度时添加省略号） */
 function truncateTitle(title, maxLength = 12) {
   if (title.length <= maxLength) {
     return title
@@ -57,11 +75,13 @@ function truncateTitle(title, maxLength = 12) {
   return title.slice(0, maxLength) + '...'
 }
 
+/** 格式化评分（保留1位小数） */
 function formatRating(rating) {
   if (typeof rating !== 'number') return '0.0'
   return rating.toFixed(1)
 }
 
+/** 海报加载失败时显示占位图 */
 function handlePosterError(event) {
   event.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="140" height="210" viewBox="0 0 140 210"%3E%3Crect fill="%23e5e5ea" width="140" height="210" rx="8"/%3E%3Ctext fill="%238e8e93" font-family="sans-serif" font-size="12" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle"%3E电影封面%3C/text%3E%3C/svg%3E'
 }
