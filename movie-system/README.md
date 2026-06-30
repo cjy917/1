@@ -11,32 +11,43 @@
 | 评论翻译 | 英文爬虫评论一键翻译为中文 |
 | 用户互动 | 0.5-10 分评分、发表评论 |
 | 电影搜索 | 按名称、导演、演员、类型、简介搜索 |
-| 数据分析 | ECharts 多维可视化（类型/年份/国家/评分/语言/Top10） |
-| 智能推荐 | 四层算法：ALS(0.7) + GraphX(0.2) + TF-IDF内容(0.1) + 冷启动兜底 |
+| 数据分析 | ECharts 多维可视化（类型/年份/国家/评分/语言/Top10/词云等） |
+| 智能推荐 | 四层算法：NMF-ALS(0.7) + GraphX(0.2) + TF-IDF内容(0.1) + 冷启动兜底 |
 
 ## 项目结构
 
 ```
-xt1/
-├── merged/                    # 已有爬虫数据（movies.csv/json + posters）
-└── movie-system/
-    ├── backend/               # Flask Web 后端
-    ├── frontend/              # 前端页面（ECharts 可视化）
-    ├── spark/                 # Spark Scala 程序（SQL/ALS/GraphX）
-    ├── crawler/               # 爬虫扩展（TMDB API）
-    ├── scripts/               # 数据导入脚本
-    ├── start.bat              # Windows 一键启动
-    └── start.sh               # Linux 一键启动
+FYWZ/
+├── films_data/          # 爬虫数据目录（MySQL导入源）
+│   ├── ratings/         # 爬虫评分 CSV
+│   └── picture/         # 海报图片
+├── posters/             # 海报目录（多路径兼容）
+├── trailers/            # 本地预告片目录
+├── videos/              # 本地正片视频目录
+└── movie-system/        # 系统主目录
+    ├── backend/         # Flask Web 后端
+    │   ├── services/    # 业务服务层
+    │   ├── app.py       # 应用入口
+    │   ├── config.py    # 配置文件
+    │   └── models.py    # SQLite模型
+    ├── frontend/        # Vue3 前端页面（ECharts 可视化）
+    ├── spark/           # Spark Scala 程序（SQL/ALS/GraphX）
+    ├── crawler/         # 爬虫扩展（TMDB API）
+    ├── scripts/         # 数据导入脚本
+    ├── media/           # 媒体演示文件（demo.mp4）
+    ├── start-system.bat # Windows 一键启动
+    ├── start-system.ps1 # PowerShell 一键启动
+    └── start-backend-only.bat # 仅启动后端
 ```
 
-## 快速开始（Windows 合并版）
+## 快速开始（Windows）
 
-**前置：** MySQL 已导入 `movies_backup.sql`，`cs1/films_data` 与 `cs1/posters` 数据就绪。
+**前置：** MySQL 已导入 `movies_backup.sql`，数据文件就绪。
 
 ```bat
-cd movie-system\movie-system
+cd movie-system
 pip install -r backend\requirements.txt
-cd frontend && npm install && cd ..
+cd frontend && npm.cmd install --legacy-peer-deps && cd ..
 start-system.bat
 ```
 
@@ -45,7 +56,7 @@ start-system.bat
 打包生产模式（可选）：
 
 ```bat
-cd frontend && npm run build
+cd frontend && npm.cmd run build
 cd ..\backend && python app.py
 ```
 
@@ -54,7 +65,7 @@ cd ..\backend && python app.py
 ## 快速开始（Linux / 实训环境）
 
 ```bash
-cd movie-system2
+cd movie-system
 chmod +x start.sh spark/run_spark_jobs.sh
 ./start.sh
 ```
@@ -72,7 +83,7 @@ chmod +x start.sh spark/run_spark_jobs.sh
 在 **Ubuntu 虚拟机**（已安装 Spark）上执行：
 
 ```bash
-cd movie-system2/movie-system2/spark
+cd movie-system/spark
 chmod +x run_spark_jobs.sh
 ./run_spark_jobs.sh
 ```
@@ -96,18 +107,26 @@ spark-submit --class edu.xt1.spark.MovieRecommendContentBased target/movie-recom
 curl -X POST http://127.0.0.1:5000/api/spark/load-results
 ```
 
-## 正片播放说明
+## 媒体播放说明
 
-系统**只播放电影正片**，不再播放预告片。播放优先级：
+电影详情页支持**正片播放**和**预告片播放**，通过标签页切换。
 
-1. **本地 MP4**（推荐）：`merged/videos/{电影ID}.mp4`
+### 正片播放优先级：
+
+1. **本地 MP4**（推荐）：`videos/{电影ID}.mp4`
 2. **在线直链**：CSV / 数据库中的 `视频地址` 字段（MP4 直链）
+
+### 预告片播放优先级：
+
+1. **本地 MP4**：`trailers/{电影ID}.mp4`
+2. **TMDB YouTube 链接**：通过 TMDB API 获取官方预告片 YouTube 链接
+3. **B站链接**：通过 TMDB 返回的视频 ID 匹配 B站资源
 
 ### 添加正片方式
 
 **方式一：直接放本地文件**
 ```
-merged/videos/1023915.mp4
+videos/1023915.mp4
 ```
 
 **方式二：CSV 增加视频地址列**
@@ -115,7 +134,7 @@ merged/videos/1023915.mp4
 电影ID,中文名称,...,视频地址
 1023915,2073年,...,https://example.com/movie.mp4
 ```
-然后删除 `backend/movie_system.db` 重新导入，或手动更新数据库。
+然后删除 `backend/app.db` 重新导入，或手动更新数据库。
 
 **方式三：脚本下载到本地**
 ```bash
@@ -129,25 +148,48 @@ python scripts/list_videos.py
 
 > 说明：TMDB 仅提供元数据和预告片，不含正版正片。正片需通过爬虫补充视频地址，或自行准备 MP4 文件。Internet Archive 公版电影可在 Linux 服务器上用 `scripts/fetch_videos.py` 批量关联。
 
-## 爬虫扩展（补充至 5000+ 条）
+## 数据来源说明
 
-当前 `merged/movies.csv` 约 **2708** 条，可使用 TMDB API 继续爬取：
+系统数据来源于**豆瓣**和**TMDb**两个平台，已爬取完成并存储在 `films_data/` 目录下，数据规模固定为 **6766** 部电影。
 
-```bash
-pip install requests
-python crawler/tmdb_crawler.py --api-key YOUR_TMDB_API_KEY --pages 50
-python scripts/import_data.py   # 重新导入（需先删除 backend/movie_system.db）
+### 数据源结构
+
+```
+films_data/cleaned_data/
+├── douban/                    # 豆瓣数据（2019-2020年，约1535部）
+│   └── 19_20_cleaned.parquet/
+└── tmdb/                      # TMDb数据（2015-2026年，约5200部）
+    ├── 2015_cleaned.parquet/
+    ├── 2016_cleaned.parquet/
+    ├── 2017_cleaned.parquet/
+    ├── 2018_cleaned.parquet/
+    ├── 21_22_cleaned.parquet/
+    ├── 23_24_cleaned.parquet/
+    └── 25_26_cleaned.parquet/
 ```
 
-TMDB API Key 申请：https://www.themoviedb.org/settings/api
+### 爬取方式
+
+| 平台 | 爬取方式 | 认证方式 | 数据特点 |
+|------|---------|---------|---------|
+| **豆瓣** | 网页爬虫（解析HTML DOM） | Cookie登录态 | 中文数据完整，包含详细短评 |
+| **TMDb** | 官方API（RESTful JSON） | API Key参数 | 英文数据为主，字段标准化 |
+
+### 数据导入
+
+数据已通过 `movies_backup.sql` 导入 MySQL，启动系统前确保数据库已恢复：
+
+```bash
+mysql -u root -p movies_db < movies_backup.sql
+```
 
 ## 技术栈
 
-- **后端**: Python Flask + SQLite
-- **前端**: HTML/CSS/JavaScript + ECharts
+- **后端**: Python Flask + SQLite（用户数据）+ MySQL（电影数据）
+- **前端**: Vue3 + Vite + ECharts + Element Plus + Pinia + Tailwind CSS + vue-router + axios
 - **大数据**: Spark SQL、Spark MLlib ALS、Spark GraphX
 - **翻译**: deep-translator（Google 翻译）
-- **数据源**: TMDB 爬虫数据
+- **数据源**: TMDB API 爬虫数据
 
 ---
 
@@ -157,8 +199,9 @@ TMDB API Key 申请：https://www.themoviedb.org/settings/api
 
 | 数据源 | 文件 | 记录数 | 来源 |
 |--------|------|--------|------|
-| 豆瓣电影 | `19_20.csv` | ~1500条 | 豆瓣爬虫 |
-| TMDb | `2015.csv`~`25_26.csv` | ~5200条 | TMDb API |
+| 豆瓣 | `cleaned_data/douban/19_20_cleaned.parquet` | ~1535条 | 网页爬虫（Cookie登录） |
+| TMDb | `cleaned_data/tmdb/*.parquet` | ~5200条 | 官方API（API Key） |
+| 合并 | `movies_backup.sql` | ~6766条 | MySQL备份 |
 
 ### 预处理流程
 
@@ -681,10 +724,10 @@ def hybrid_recommendations(user_id):
 
 ## 创新点
 
-1. **双算法推荐**：ALS 协同过滤 + GraphX 图 PageRank 融合
+1. **四层混合推荐**：NMF-ALS 协同过滤 + GraphX 图 PageRank + TF-IDF 内容相似 + 冷启动热门兜底
 2. **英文评论翻译**：爬虫英文影评一键中文化
-3. **可视化分析大屏**：6 维度 ECharts 交互图表
-4. **内容相似推荐**：基于类型的相似电影推荐
+3. **多维可视化分析**：16+ 维度 ECharts 交互图表（类型/年份/国家/评分/语言/演员/导演/时长/词云等）
+4. **双数据库架构**：MySQL（电影数据）+ SQLite（用户数据），兼顾性能与开发效率
 5. **爬虫可扩展**：TMDB API 模块化补充数据
 
 ## 实训报告建议章节
