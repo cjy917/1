@@ -1,4 +1,28 @@
-"""Spark 批处理推荐：用户点「刷新」时在 VM 重算 ALS/GraphX/Content，展示读本地 JSON。"""
+"""
+推荐策略服务模块（推荐系统核心调度层）
+
+【推荐策略总览】
+┌─────────────────────────────────────────────────────────────┐
+│  用户评分数量 < 3（冷启动）                                   │
+│    └── 返回热门电影（get_home_popular_items）               │
+├─────────────────────────────────────────────────────────────┤
+│  用户评分数量 >= 3（正常推荐）                                │
+│    ├── 优先读取 Spark 离线 JSON（_spark_hybrid_recommendations） │
+│    ├── 无 Spark 输出 → 在线混合推荐（_online_hybrid_recommendations） │
+│    └── 用户点击「刷新」→ 触发 Spark VM 批处理                 │
+└─────────────────────────────────────────────────────────────┘
+
+【混合推荐权重】
+  WEIGHT_ALS = 0.7（协同过滤为主）
+  WEIGHT_GRAPHX = 0.2（图相似扩展）
+  WEIGHT_CONTENT = 0.1（内容相似兜底）
+
+【调用链】
+app.py → hybrid_recommendations() → _spark_hybrid_recommendations() / _online_hybrid_recommendations()
+                                        ↓
+                              recommend_service.py.recommend_als_for_user()
+                              movie_service.py.get_movies_by_ids()
+"""
 from __future__ import annotations
 
 import json
@@ -37,17 +61,32 @@ RATING_MIN_FOR_PERSONAL = 3
 
 
 def _ensure_crawled_ratings() -> None:
-    """在线 ALS / 协同依赖爬虫评分矩阵，启动时若未导入则同步加载一次。"""
+    """
+    确保爬虫评分数据已加载
+    
+    在线 ALS/协同算法依赖爬虫评分矩阵，启动时若未导入则同步加载一次
+    """
     if CrawledRating.query.count() == 0:
         seed_crawled_ratings()
 
 
 def _short_title(title: str | None, max_len: int = 12) -> str:
+    """电影标题截断（用于推荐理由展示）"""
     text = (title or "该电影").strip()
     return text if len(text) <= max_len else text[: max_len - 1] + "…"
 
 
 def _user_top_ratings(user_id: int, limit: int = 3) -> list[tuple[str, float, dict[str, Any] | None]]:
+    """
+    获取用户评分最高的电影
+    
+    Args:
+        user_id: 用户ID
+        limit: 返回数量
+    
+    Returns:
+        [(电影标题, 评分, 电影详情dict), ...]
+    """
     rows = (
         UserRating.query.filter_by(user_id=user_id)
         .order_by(UserRating.score.desc())
@@ -63,6 +102,7 @@ def _user_top_ratings(user_id: int, limit: int = 3) -> list[tuple[str, float, di
 
 
 def _reason_for_als(user_id: int, *, online: bool = True) -> str:
+    """生成 ALS 推荐理由"""
     tops = _user_top_ratings(user_id, limit=1)
     prefix = "在线 ALS" if online else "ALS"
     if tops:
@@ -72,6 +112,7 @@ def _reason_for_als(user_id: int, *, online: bool = True) -> str:
 
 
 def _reason_for_graphx(*, online: bool = True) -> str:
+    """生成 GraphX/图相似推荐理由"""
     if online:
         return "在线协同：与你评分口味相近的用户也在看这些电影"
     return "GraphX：口味相似的用户也在看这些电影"
@@ -84,6 +125,7 @@ def _reason_for_content(
     source_score: float | None = None,
     user_genres: set[str] | None = None,
 ) -> str:
+    """生成内容相似推荐理由"""
     if source_title and source_score:
         return f"与你给《{_short_title(source_title)}》打的 {source_score:.1f} 分相关，内容/类型相近"
     genres = (movie.get("genres") or "").replace(" ", "")
@@ -97,6 +139,7 @@ def _reason_for_content(
 
 
 def _reason_for_hybrid(algos: list[str], movie: dict[str, Any], user_id: int) -> str:
+    """生成混合推荐理由"""
     parts: list[str] = []
     if "als" in algos:
         tops = _user_top_ratings(user_id, limit=1)
@@ -120,6 +163,7 @@ def _reason_for_hybrid(algos: list[str], movie: dict[str, Any], user_id: int) ->
 
 
 def _reason_for_cold_start(movie: dict[str, Any]) -> str:
+    """生成冷启动推荐理由"""
     rating = movie.get("rating")
     if rating:
         return f"首页热门电影 · 豆瓣 {float(rating):.1f} 分 · 评价人数多"
@@ -132,6 +176,18 @@ def _movie_card(
     algorithm: str,
     reason: str | None = None,
 ) -> dict[str, Any]:
+    """
+    组装推荐电影卡片（统一格式）
+    
+    Args:
+        movie: 电影详情
+        score: 推荐得分
+        algorithm: 算法类型（als/graphx/content/hybrid）
+        reason: 推荐理由
+    
+    Returns:
+        推荐卡片 dict（含 movie_id, title, poster_url, score, algorithm, genres, rating, reason）
+    """
     card = {
         "movie_id": movie["movie_id"],
         "title": movie.get("title"),
@@ -147,7 +203,7 @@ def _movie_card(
 
 
 def get_home_popular_items(limit: int = SECTION_LIMIT) -> list[dict[str, Any]]:
-    """与首页 /api/movies/home 的 popular 区块使用同一数据源。"""
+    """获取首页热门电影（冷启动兜底）"""
     movies = get_home_sections().get("popular", [])[:limit]
     return [
         _movie_card(m, m.get("rating") or 0, "popular", _reason_for_cold_start(m))
@@ -156,15 +212,18 @@ def get_home_popular_items(limit: int = SECTION_LIMIT) -> list[dict[str, Any]]:
 
 
 def get_cold_start_movies(limit: int = 12) -> list[dict[str, Any]]:
+    """获取冷启动推荐电影（调用热门电影接口）"""
     return get_home_popular_items(limit)
 
 
 def get_content_similar_movies(movie_id: int | str, limit: int = 10) -> list[dict[str, Any]]:
+    """获取内容相似电影列表"""
     similar = get_similar_movies(int(movie_id), limit=limit)
     return [_movie_card(m, (m.get("rating") or 0) / 10.0, "content") for m in similar]
 
 
 def _load_spark_candidates(filename: str, user_key: int | str) -> list[dict[str, Any]]:
+    """从 Spark 输出 JSON 文件加载推荐候选"""
     path = SPARK_OUTPUT_DIR / filename
     if not path.exists():
         return []
@@ -175,6 +234,7 @@ def _load_spark_candidates(filename: str, user_key: int | str) -> list[dict[str,
 
 
 def _normalize_scores(items: list[dict], movie_id_key: str = "movieId") -> dict[str, float]:
+    """将推荐得分归一化到 [0, 1] 区间"""
     if not items:
         return {}
     scores = [float(x.get("score", 0)) for x in items]
@@ -188,6 +248,23 @@ def _content_recommendations_for_user(
     limit: int = 10,
     rated_movie_ids: set[str] | None = None,
 ) -> tuple[dict[str, float], dict[str, str]]:
+    """
+    内容相似推荐（TF-IDF）
+    
+    Args:
+        user_id: 用户ID
+        limit: 返回数量
+        rated_movie_ids: 用户已评分电影ID集合
+    
+    Returns:
+        (推荐得分dict, 推荐理由dict)
+    
+    算法逻辑：
+        1. 获取用户评分最高的前10部电影
+        2. 对每部电影获取相似电影（基于类型、导演、演员）
+        3. 根据用户评分加权（评分越高权重越大）
+        4. 去重并归一化得分
+    """
     all_ratings = (
         UserRating.query.filter_by(user_id=user_id)
         .order_by(UserRating.score.desc())
@@ -226,7 +303,20 @@ def _content_recommendations_for_user(
 
 
 def _online_als_scores(user_id: int, limit: int, rated_movie_ids: set[str]) -> dict[str, float]:
-    """在线 NMF-ALS：基于 SQLite 当前评分 + 爬虫评分矩阵实时分解。"""
+    """
+    在线 NMF-ALS 推荐得分
+    
+    Args:
+        user_id: 用户ID
+        limit: 返回数量
+        rated_movie_ids: 用户已评分电影ID集合
+    
+    Returns:
+        推荐得分 dict（movie_id → 得分）
+    
+    调用链：
+        _online_als_scores → recommend_service.py.recommend_als_for_user()
+    """
     movies = recommend_als_for_user(user_id, limit=limit + len(rated_movie_ids))
     if not movies:
         return {}
@@ -244,7 +334,23 @@ def _online_als_scores(user_id: int, limit: int, rated_movie_ids: set[str]) -> d
 def _graph_similar_scores(
     user_id: int, limit: int, rated_movie_ids: set[str]
 ) -> tuple[dict[str, float], dict[str, str]]:
-    """图相似扩展：基于用户高分电影在类型/导演关系上的邻居。"""
+    """
+    图相似扩展得分（基于类型/导演关系的邻居推荐）
+    
+    Args:
+        user_id: 用户ID
+        limit: 返回数量
+        rated_movie_ids: 用户已评分电影ID集合
+    
+    Returns:
+        (推荐得分dict, 推荐理由dict)
+    
+    算法逻辑：
+        1. 获取用户评分最高的前5部电影
+        2. 对每部电影获取相似电影（基于类型、导演、演员）
+        3. 根据用户评分加权，按位置衰减
+        4. 去重并归一化得分
+    """
     user_ratings = (
         UserRating.query.filter_by(user_id=user_id)
         .order_by(UserRating.score.desc())
@@ -275,6 +381,7 @@ def _graph_similar_scores(
 
 
 def _merge_score_maps(*maps: dict[str, float]) -> dict[str, float]:
+    """合并多个推荐得分字典（加权求和后归一化）"""
     merged: dict[str, float] = {}
     for score_map in maps:
         for mid, score in score_map.items():
@@ -288,7 +395,22 @@ def _merge_score_maps(*maps: dict[str, float]) -> dict[str, float]:
 def _online_graphx_scores(
     user_id: int, limit: int, rated_movie_ids: set[str]
 ) -> tuple[dict[str, float], dict[str, str]]:
-    """在线协同过滤 + 图相似：用户重叠协同为主，图邻居扩展为辅。"""
+    """
+    在线协同过滤 + 图相似得分
+    
+    Args:
+        user_id: 用户ID
+        limit: 返回数量
+        rated_movie_ids: 用户已评分电影ID集合
+    
+    Returns:
+        (推荐得分dict, 推荐理由dict)
+    
+    算法逻辑：
+        1. 用户重叠协同：找到与用户评分重叠的爬虫用户，推荐他们评分高的电影
+        2. 图相似扩展：基于用户高分电影的类型/导演邻居
+        3. 合并两种得分并归一化
+    """
     user_ratings = UserRating.query.filter_by(user_id=user_id).all()
     if not user_ratings:
         return {}, {}
@@ -344,7 +466,24 @@ def _online_graphx_scores(
 
 
 def _online_hybrid_recommendations(user_id: int, rating_count: int) -> dict[str, Any]:
-    """评满 3 部后：全在线计算，不读 Spark 离线 JSON。"""
+    """
+    在线混合推荐（无 Spark 输出时的降级方案）
+    
+    Args:
+        user_id: 用户ID
+        rating_count: 用户评分数量
+    
+    Returns:
+        混合推荐结果（含混合推荐 + 各算法独立结果）
+    
+    算法流程：
+        1. 并行计算三种算法得分：
+           - _online_als_scores（NMF-ALS，权重0.7）
+           - _online_graphx_scores（图相似，权重0.2）
+           - _content_recommendations_for_user（内容相似，权重0.1）
+        2. 加权融合生成混合推荐
+        3. 同时返回各算法独立结果用于对比展示
+    """
     rated_movie_ids = {str(r.movie_id) for r in UserRating.query.filter_by(user_id=user_id).all()}
     pool = SECTION_LIMIT + 10
 
@@ -431,6 +570,7 @@ def _online_hybrid_recommendations(user_id: int, rating_count: int) -> dict[str,
 
 
 def _user_preferred_genres(user_id: int) -> set[str]:
+    """获取用户偏好的电影类型（基于高分电影）"""
     genres: set[str] = set()
     for _, _, movie in _user_top_ratings(user_id, limit=5):
         if not movie:
@@ -441,6 +581,7 @@ def _user_preferred_genres(user_id: int) -> set[str]:
 
 
 def _default_reason(algorithm: str, movie: dict[str, Any], user_id: int | None = None) -> str:
+    """根据算法类型生成默认推荐理由"""
     if algorithm == "als":
         return _reason_for_als(user_id) if user_id else "在线 ALS 协同过滤"
     if algorithm == "graphx":
@@ -463,6 +604,20 @@ def _rank_to_items(
     reasons_map: dict[str, str] | None = None,
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
+    """
+    将得分字典转换为推荐电影卡片列表
+    
+    Args:
+        score_map: 推荐得分字典
+        algorithm: 算法类型
+        rated_movie_ids: 用户已评分电影ID集合
+        limit: 返回数量
+        reasons_map: 推荐理由字典
+        user_id: 用户ID
+    
+    Returns:
+        推荐电影卡片列表
+    """
     if not score_map:
         return []
     ranked = sorted(score_map.items(), key=lambda x: -x[1])
@@ -487,6 +642,7 @@ def _items_from_db(
     limit: int,
     algorithm: str | None = None,
 ) -> list[dict[str, Any]] | None:
+    """从数据库读取 Spark 离线推荐结果"""
     query = SparkRecommendation.query.filter_by(user_id=user_id)
     if algorithm:
         query = query.filter_by(algorithm=algorithm)
@@ -519,6 +675,24 @@ def _build_sections_payload(
     spark_imported: bool,
     personalized_ready: bool = False,
 ) -> dict[str, Any]:
+    """
+    构建推荐结果 payload（统一返回格式）
+    
+    Args:
+        hybrid_items: 混合推荐结果
+        als_items: ALS独立推荐结果
+        graphx_items: GraphX独立推荐结果
+        content_items: 内容相似独立推荐结果
+        popular_items: 热门电影（冷启动用）
+        strategy: 推荐策略类型
+        source: 数据来源（online/spark/fallback）
+        rating_count: 用户评分数量
+        spark_imported: 是否已导入Spark结果
+        personalized_ready: 是否可以展示个性化推荐
+    
+    Returns:
+        推荐结果字典（含所有推荐列表和元信息）
+    """
     primary_items = hybrid_items if hybrid_items else (popular_items if strategy != "spark_pending" else [])
     return {
         "items": primary_items,
@@ -538,6 +712,7 @@ def _build_sections_payload(
 
 
 def _load_user_spark_raw(filename: str, spark_user_id: int) -> list[dict]:
+    """从 Spark 输出 JSON 文件加载指定用户的推荐数据"""
     path = SPARK_OUTPUT_DIR / filename
     if not path.exists():
         return []
@@ -547,6 +722,7 @@ def _load_user_spark_raw(filename: str, spark_user_id: int) -> list[dict]:
 
 
 def _spark_has_outputs() -> bool:
+    """检查 Spark 批处理输出文件是否存在"""
     return all(
         (SPARK_OUTPUT_DIR / name).exists()
         for name in (
@@ -558,10 +734,12 @@ def _spark_has_outputs() -> bool:
 
 
 def _spark_score_map(filename: str, spark_user_id: int) -> dict[str, float]:
+    """加载 Spark 输出并归一化得分"""
     return _normalize_scores(_load_user_spark_raw(filename, spark_user_id), movie_id_key="movieId")
 
 
 def _reason_for_spark_als(user_id: int) -> str:
+    """生成 Spark ALS 推荐理由"""
     tops = _user_top_ratings(user_id, limit=1)
     if tops:
         title, score, _ = tops[0]
@@ -570,14 +748,17 @@ def _reason_for_spark_als(user_id: int) -> str:
 
 
 def _reason_for_spark_graphx() -> str:
+    """生成 Spark GraphX 推荐理由"""
     return "Spark GraphX：用户-电影图上的协同扩展推荐"
 
 
 def _reason_for_spark_content() -> str:
+    """生成 Spark TF-IDF 内容推荐理由"""
     return "Spark TF-IDF：类型/导演/演员等内容向量相似"
 
 
 def _reason_for_spark_hybrid(algos: list[str], user_id: int) -> str:
+    """生成 Spark 混合推荐理由"""
     parts: list[str] = []
     if "als" in algos:
         tops = _user_top_ratings(user_id, limit=1)
@@ -599,7 +780,29 @@ def _spark_hybrid_recommendations(
     *,
     refreshed: bool = False,
 ) -> dict[str, Any]:
-    """从本地 spark/output/*.json 读取该用户推荐（由 VM 批处理产出）。"""
+    """
+    Spark 离线混合推荐（优先推荐策略）
+    
+    Args:
+        user_id: 用户ID
+        rating_count: 用户评分数量
+        refreshed: 是否刚刷新过
+    
+    Returns:
+        混合推荐结果
+    
+    算法流程：
+        1. 检查 Spark 输出文件是否存在
+        2. 加载三种算法的归一化得分：
+           - recommendations_als.json（权重0.7）
+           - recommendations_graphx.json（权重0.2）
+           - recommendations_content.json（权重0.1）
+        3. 加权融合生成混合推荐
+        4. 同时返回各算法独立结果用于对比展示
+    
+    数据来源：
+        Spark VM 批处理产出的 JSON 文件（spark/output/ 目录）
+    """
     spark_uid = user_id + SPARK_USER_OFFSET
     rated_movie_ids = {str(r.movie_id) for r in UserRating.query.filter_by(user_id=user_id).all()}
 
@@ -694,7 +897,21 @@ def _spark_hybrid_recommendations(
 
 
 def refresh_spark_recommendations(user_id: int) -> dict[str, Any]:
-    """导出评分 → 同步 VM → 触发 Spark 批处理 → 拉回 JSON → 返回推荐。"""
+    """
+    刷新 Spark 推荐（用户点击「刷新推荐」时调用）
+    
+    Args:
+        user_id: 用户ID
+    
+    Returns:
+        刷新后的推荐结果
+    
+    执行流程：
+        1. 导出评分数据（export_spark_ratings.py）
+        2. 调用 Spark VM 批处理（spark_vm_client.py）
+        3. 加载新的 Spark 输出 JSON
+        4. 返回推荐结果
+    """
     rating_count = UserRating.query.filter_by(user_id=user_id).count()
     if rating_count < RATING_MIN_FOR_PERSONAL:
         return hybrid_recommendations(user_id)
@@ -716,6 +933,24 @@ def refresh_spark_recommendations(user_id: int) -> dict[str, Any]:
 
 
 def hybrid_recommendations(user_id: int, limit: int = RECOMMEND_TOP_N) -> dict[str, Any]:
+    """
+    推荐系统入口函数
+    
+    Args:
+        user_id: 用户ID
+        limit: 返回数量
+    
+    Returns:
+        推荐结果（含策略信息、推荐列表）
+    
+    策略路由：
+        1. 确保爬虫评分已加载
+        2. 获取用户评分数量
+        3. rating_count < 3 → 冷启动模式（返回热门电影）
+        4. rating_count >= 3 → Spark 离线混合推荐
+           - 有 Spark 输出 → 读取 JSON 展示
+           - 无 Spark 输出 → 降级为在线混合推荐
+    """
     _ensure_crawled_ratings()
     rating_count = UserRating.query.filter_by(user_id=user_id).count()
     popular_items = get_home_popular_items(limit=SECTION_LIMIT)
@@ -734,11 +969,21 @@ def hybrid_recommendations(user_id: int, limit: int = RECOMMEND_TOP_N) -> dict[s
             personalized_ready=False,
         )
 
-    # 评满 3 部：只展示上次 Spark 批处理结果；新评分需用户点「刷新推荐」才重算
     return _spark_hybrid_recommendations(user_id, rating_count)
 
 
 def import_spark_results() -> dict[str, int]:
+    """
+    导入 Spark 推荐结果到数据库（管理员操作）
+    
+    Returns:
+        各算法导入数量统计
+    
+    逻辑：
+        1. 遍历 Spark 输出 JSON 文件
+        2. 将推荐结果写入 SparkRecommendation 表
+        3. 支持算法类型：als、graphx、content
+    """
     from models import User
 
     files = [

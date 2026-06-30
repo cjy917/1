@@ -32,7 +32,7 @@ def main():
 
     hdfs_path = "hdfs://Master:9000/films/cleaned_data"
     output_path_hdfs = "hdfs://Master:9000/films/ratings"
-    output_path_local = "/home/zsy/films/ratings"
+    output_path_local = "../../films_data/ratings"
 
     extract_reviews_udf = udf(extract_reviews, ArrayType(StructType([
         StructField("author", StringType()),

@@ -31,7 +31,7 @@ def main():
         .appName("ImportToNeo4j") \
         .getOrCreate()
 
-    local_path = "/home/zsy/films/cleaned_data"
+    local_path = "../../films_data/cleaned_data"
     neo4j_url = "bolt://localhost:7687"
 
     graph = Graph(neo4j_url)

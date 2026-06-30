@@ -145,12 +145,12 @@ hdfs://Master:9000/films/cleaned_data/
 ### 本地路径（备份）
 
 ```
-/home/zsy/films/cleaned_data/
+films_data/cleaned_data/
 ├── douban/
-│   ├── 19_20_cleaned.csv
+│   ├── 19_20_cleaned.csv/
 │   └── 19_20_cleaned.parquet/
 └── tmdb/
-    ├── 2015_cleaned.csv
+    ├── 2015_cleaned.csv/
     ├── 2015_cleaned.parquet/
     └── ...（其他年份）
 ```
@@ -185,8 +185,8 @@ all_movies_df = douban_df.union(all_tmdb_df)
 ```python
 import pandas as pd
 
-# 读取CSV
-df = pd.read_csv("/home/zsy/films/cleaned_data/douban/19_20_cleaned.csv", encoding="utf-8")
+# 读取CSV（路径相对于项目根目录）
+df = pd.read_csv("films_data/cleaned_data/douban/19_20_cleaned.csv/part-00000-*.csv", encoding="utf-8")
 ```
 
 ## 九、评分数据提取

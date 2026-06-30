@@ -23,8 +23,8 @@ def main():
         .appName("MovieDataCleaning") \
         .getOrCreate()
 
-    input_dir = "/home/zsy/films/data"
-    output_dir = "/home/zsy/films/cleaned_data"
+    input_dir = "../../films_data/data"
+    output_dir = "../../films_data/cleaned_data"
     
     os.makedirs(output_dir, exist_ok=True)
 

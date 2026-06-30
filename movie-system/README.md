@@ -149,6 +149,536 @@ TMDB API Key 申请：https://www.themoviedb.org/settings/api
 - **翻译**: deep-translator（Google 翻译）
 - **数据源**: TMDB 爬虫数据
 
+---
+
+## 数据预处理
+
+### 数据源
+
+| 数据源 | 文件 | 记录数 | 来源 |
+|--------|------|--------|------|
+| 豆瓣电影 | `19_20.csv` | ~1500条 | 豆瓣爬虫 |
+| TMDb | `2015.csv`~`25_26.csv` | ~5200条 | TMDb API |
+
+### 预处理流程
+
+预处理由 `scripts/clean_movies.py` 使用 PySpark 完成，流程如下：
+
+1. **字段重命名**：将中文列名统一映射为英文列名
+   - "豆瓣电影ID"/"电影ID" → `movie_id`
+   - "中文名称" → `title`
+   - "评分" → `rating`
+   - "上映日期" → `release_date`
+   - "导演" → `directors`
+   - "主演" → `actors`
+   - "影片类型" → `genres`
+   - "制片国家/地区" → `countries`
+   - 共映射 22 个字段
+
+2. **数据清洗规则**：
+   - **空值过滤**：删除 `movie_id` 或 `title` 为空的记录
+   - **格式校验**：`movie_id` 必须为纯数字格式
+   - **繁简转换**：使用 OpenCC 将繁体字转换为简体字（title、aliases、summary、reviews、directors、writers、actors）
+   - **换行符替换**：将 `reviews` 和 `summary` 中的 `\r\n` 替换为空格
+   - **多值字段标准化**：directors、writers、actors、languages、genres、countries、aliases 使用 `|` 分隔，去除首尾和连续的 `|`
+   - **类型转换**：rating(Float)、rating_count(Integer)、review_count(Integer)、release_year(Integer)
+   - **默认值填充**：aliases 为空填"未知"，awards 为空填"无"，rating 为空填 0.0
+
+3. **评分提取**：
+   - 由 `scripts/extract_ratings.py` 从评论文本中提取用户评分
+   - 每条评论格式：`[评论N]作者:xxx|评分:x.x/10 评论内容`
+   - 提取字段：user_id、rating、comment、source
+   - 过滤条件：rating > 0
+   - 提取结果：约 33830 条评分数据
+
+4. **输出格式**：
+   - CSV 格式：用于 MySQL 导入
+   - Parquet 格式：用于 Spark 分布式计算
+
+---
+
+## 模型与代码
+
+### 推荐算法模型表达
+
+#### NMF-ALS 在线协同过滤
+
+**模型公式**：
+```
+R ≈ U × V^T
+
+其中：
+  R ∈ R^(n_users × n_movies)  — 用户-电影评分矩阵（稀疏）
+  U ∈ R^(n_users × n_components)  — 用户特征矩阵
+  V ∈ R^(n_movies × n_components)  — 物品特征矩阵
+  n_components = min(20, n_movies-1, n_users-1)  — 隐因子维度
+
+损失函数：
+  L = ||R - UV^T||_F^2 + λ(||U||_F^2 + ||V||_F^2)
+
+优化配置：
+  init = "nndsvda"  — 非负双重奇异值分解初始化
+  max_iter = 300  — 最大迭代次数
+  random_state = 42  — 随机种子（保证可复现）
+```
+
+#### 混合推荐权重公式
+
+```
+Score(movie) = Weight_ALS × Score_ALS + Weight_GraphX × Score_GraphX + Weight_Content × Score_Content
+
+其中：
+  Weight_ALS = 0.7（协同过滤为主）
+  Weight_GraphX = 0.2（图相似扩展）
+  Weight_Content = 0.1（内容相似兜底）
+```
+
+### 核心函数伪代码
+
+#### 1. recommend_als_for_user（NMF-ALS 在线推荐）
+
+```python
+# 文件: backend/services/recommend_service.py, 行74-107
+# 输入: user_id(int) - 用户ID, limit(int) - 推荐数量
+# 输出: list[dict] - 推荐电影列表
+
+def recommend_als_for_user(user_id, limit=12):
+    1. 构建评分矩阵
+       ├─ user_map = {用户名 → 矩阵行索引}
+       ├─ movie_map = {电影ID → 矩阵列索引}
+       ├─ 遍历 CrawledRating 和 UserRating 表
+       └─ matrix[uid, mid] = score  # 填充评分矩阵
+    
+    2. 检查数据有效性
+       └─ 如果矩阵为空或用户不在映射中，返回热门电影兜底
+    
+    3. NMF 分解
+       ├─ n_components = min(20, 电影数-1, 用户数-1)
+       ├─ model = NMF(n_components, init="nndsvda", max_iter=300, random_state=42)
+       ├─ U = model.fit_transform(matrix)  # 用户特征
+       └─ V = model.components_.T          # 物品特征
+    
+    4. 预测评分
+       └─ predicted = U[用户索引] × V^T
+    
+    5. 过滤与排序
+       ├─ 排除用户已评分的电影
+       ├─ 按预测评分降序排序
+       └─ 取前 limit × 2 部电影（为后续选择留余量）
+    
+    6. 获取电影详情
+       └─ 调用 get_movies_by_ids(movie_ids) 获取完整信息
+    
+    7. 返回结果
+       └─ 返回前 limit 部电影
+    
+    异常处理：
+       └─ NMF 失败时降级为内容相似推荐或热门电影兜底
+```
+
+#### 2. _online_hybrid_recommendations（在线混合推荐）
+
+```python
+# 文件: backend/services/recommendation_service.py, 行346-430
+# 输入: user_id(int) - 用户ID, rating_count(int) - 用户评分数量
+# 输出: dict - 混合推荐结果
+
+def _online_hybrid_recommendations(user_id, rating_count):
+    1. 获取用户已评分电影ID集合
+       └─ rated_movie_ids = {str(r.movie_id) for r in UserRating.query.filter_by(user_id=user_id)}
+    
+    2. 并行计算三种算法得分
+       ├─ als_norm = _online_als_scores(user_id, pool, rated_movie_ids)
+       ├─ graphx_norm, graphx_reasons = _online_graphx_scores(user_id, pool, rated_movie_ids)
+       └─ content_scores, content_reasons = _content_recommendations_for_user(user_id, pool, rated_movie_ids)
+    
+    3. 加权融合
+       ├─ fused[mid]["score"] += als_norm[mid] × 0.7
+       ├─ fused[mid]["score"] += graphx_norm[mid] × 0.2
+       └─ fused[mid]["score"] += content_scores[mid] × 0.1
+    
+    4. 归一化与排序
+       └─ 按融合得分降序排序，取前 20 部
+    
+    5. 组装推荐卡片
+       ├─ 调用 _movie_card() 添加海报、评分、推荐理由
+       └─ 生成 als_items、graphx_items、content_items 独立列表
+    
+    6. 返回结果
+       └─ 返回混合推荐及各算法独立结果
+```
+
+#### 3. hybrid_recommendations（推荐入口）
+
+```python
+# 文件: backend/services/recommendation_service.py, 行718-739
+# 输入: user_id(int) - 用户ID
+# 输出: dict - 最终推荐结果
+
+def hybrid_recommendations(user_id):
+    1. 确保爬虫评分已加载
+       └─ _ensure_crawled_ratings()
+    
+    2. 获取用户评分数量
+       └─ rating_count = UserRating.query.filter_by(user_id=user_id).count()
+    
+    3. 判断冷启动状态
+       ├─ 如果 rating_count < 3（冷启动）
+       │   └─ 返回热门电影列表，strategy = "cold_start"
+       └─ 如果 rating_count >= 3（正常推荐）
+           └─ 调用 _spark_hybrid_recommendations(user_id, rating_count)
+    
+    4. 返回推荐策略信息
+       └─ 包含 strategy、source、rating_count、personalized_ready 等元信息
+```
+
+### 跨子系统接口调用
+
+| 调用方 | 被调用方 | 接口/函数 | 文件路径 |
+|--------|----------|-----------|----------|
+| Flask API | 电影服务 | `get_movie_by_id(movie_id)` | `services/movie_service.py` |
+| Flask API | 推荐服务 | `hybrid_recommendations(user_id)` | `services/recommendation_service.py` |
+| Flask API | 数据分析服务 | `overview_stats(...)` | `services/analytics_service.py` |
+| 推荐服务 | 电影服务 | `get_movies_by_ids(movie_ids)` | `services/movie_service.py` |
+| 推荐服务 | 推荐算法 | `recommend_als_for_user(user_id, limit)` | `services/recommend_service.py` |
+| 数据分析服务 | 电影服务 | `get_mysql()` | `services/movie_service.py` |
+| 推荐服务 | Spark VM | `run_spark_pipeline_on_vm()` | `services/spark_vm_client.py` |
+
+---
+
+## 系统设计文档
+
+### 用例图
+
+**参与者**：
+- 用户（普通用户）
+- 管理员
+
+**用户用例**：
+1. 注册 — 用户输入用户名、邮箱、密码完成注册
+2. 登录 — 用户输入用户名、密码登录系统
+3. 浏览电影 — 用户查看首页电影列表、详情页
+4. 搜索电影 — 用户按关键词搜索电影
+5. 评分电影 — 用户对电影进行 0.5-10 分评分
+6. 发表评论 — 用户发表电影评论
+7. 收藏电影 — 用户将电影加入收藏夹
+8. 添加待看 — 用户将电影加入待看片单
+9. 查看推荐 — 用户查看个性化推荐列表
+10. 查看数据分析 — 用户查看电影数据可视化分析
+
+**管理员用例**：
+1. 导入 Spark 推荐结果 — 管理员将 Spark 批处理结果导入数据库
+2. 导出评分数据 — 管理员导出评分数据供 Spark 计算使用
+
+### ER 图
+
+**实体列表**（共 10 张表）：
+
+#### 1. movies（MySQL，通过 SQL 备份导入）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | bigint | PRIMARY KEY, AUTO_INCREMENT | 自增主键 |
+| movie_id | bigint | NOT NULL, UNIQUE | 电影唯一标识 |
+| title | varchar(200) | NOT NULL | 电影标题 |
+| rating | float | DEFAULT 0 | 豆瓣评分 |
+| rating_count | int | DEFAULT 0 | 评分人数 |
+| release_date | varchar(50) | NULL | 上映日期 |
+| release_year | int | DEFAULT 0 | 上映年份 |
+| directors | varchar(1000) | NULL | 导演（\|分隔） |
+| writers | varchar(1000) | NULL | 编剧（\|分隔） |
+| actors | varchar(2000) | NULL | 主演（\|分隔） |
+| aliases | varchar(2000) | NULL | 别名（\|分隔） |
+| summary | text | NULL | 简介 |
+| detail_url | varchar(500) | NULL | 详情页链接 |
+| languages | varchar(500) | NULL | 语言（\|分隔） |
+| genres | varchar(500) | NULL | 类型（\|分隔） |
+| duration | varchar(50) | NULL | 片长 |
+| reviews | text | NULL | 评论内容 |
+| countries | varchar(500) | NULL | 国家（\|分隔） |
+| awards | varchar(2000) | NULL | 获奖情况 |
+| review_count | int | DEFAULT 0 | 影评数 |
+| cover_path | varchar(200) | NULL | 封面路径 |
+| source | varchar(20) | NULL | 数据来源 |
+
+#### 2. users（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 用户ID |
+| username | String(80) | UNIQUE, NOT NULL | 用户名 |
+| email | String(120) | UNIQUE, NOT NULL | 邮箱 |
+| password_hash | String(256) | NOT NULL | 密码哈希 |
+| created_at | DateTime | DEFAULT utcnow | 创建时间 |
+
+#### 3. user_ratings（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 评分记录ID |
+| user_id | Integer | FOREIGN KEY → users(id) | 用户ID |
+| movie_id | BigInteger | NOT NULL | 电影ID |
+| score | Float | NOT NULL | 评分（0.5-10） |
+| created_at | DateTime | DEFAULT utcnow | 创建时间 |
+| updated_at | DateTime | DEFAULT utcnow | 更新时间 |
+
+#### 4. favorites（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 收藏记录ID |
+| user_id | Integer | FOREIGN KEY → users(id) | 用户ID |
+| movie_id | BigInteger | NOT NULL | 电影ID |
+| created_at | DateTime | DEFAULT utcnow | 创建时间 |
+
+#### 5. watchlists（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 待看记录ID |
+| user_id | Integer | FOREIGN KEY → users(id) | 用户ID |
+| movie_id | BigInteger | NOT NULL | 电影ID |
+| created_at | DateTime | DEFAULT utcnow | 创建时间 |
+
+#### 6. user_list_items（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 片单记录ID |
+| user_id | Integer | FOREIGN KEY → users(id) | 用户ID |
+| movie_id | BigInteger | NOT NULL | 电影ID |
+| created_at | DateTime | DEFAULT utcnow | 创建时间 |
+
+#### 7. movie_comments（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 评论记录ID |
+| user_id | Integer | FOREIGN KEY → users(id) | 用户ID |
+| movie_id | BigInteger | NOT NULL | 电影ID |
+| content | Text | NOT NULL | 评论内容 |
+| score | Float | NULL | 评分 |
+| created_at | DateTime | DEFAULT utcnow | 创建时间 |
+| updated_at | DateTime | DEFAULT utcnow | 更新时间 |
+
+#### 8. crawled_ratings（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 爬虫评分记录ID |
+| user_name | String(120) | NOT NULL | 爬虫用户名 |
+| movie_id | BigInteger | NOT NULL | 电影ID |
+| score | Float | NOT NULL | 评分 |
+| source | String(20) | DEFAULT "douban" | 数据来源 |
+
+#### 9. recommendation_cache（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 缓存记录ID |
+| user_id | Integer | FOREIGN KEY → users(id) | 用户ID |
+| movie_id | BigInteger | NOT NULL | 电影ID |
+| score | Float | NOT NULL | 推荐得分 |
+| algorithm | String(32) | DEFAULT "als" | 算法类型 |
+| created_at | DateTime | DEFAULT utcnow | 创建时间 |
+
+#### 10. spark_recommendations（SQLite）
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | Integer | PRIMARY KEY | 推荐记录ID |
+| user_id | Integer | FOREIGN KEY → users(id) | 用户ID |
+| movie_id | BigInteger | NOT NULL | 电影ID |
+| score | Float | NOT NULL | 推荐得分 |
+| algorithm | String(32) | NOT NULL | 算法类型（als/graphx/content） |
+| created_at | DateTime | DEFAULT utcnow | 创建时间 |
+
+**关系说明**：
+- users 与 user_ratings：1:N（一个用户多条评分）
+- users 与 favorites：1:N（一个用户多个收藏）
+- users 与 watchlists：1:N（一个用户多个待看）
+- users 与 user_list_items：1:N（一个用户多个片单项）
+- users 与 movie_comments：1:N（一个用户多条评论）
+- users 与 recommendation_cache：1:N（一个用户多条推荐缓存）
+- users 与 spark_recommendations：1:N（一个用户多条 Spark 推荐）
+- movies 表无外键关系（独立存在，通过 movie_id 与其他表关联）
+
+### 功能模块图
+
+```
+电影推荐系统
+├── 用户认证模块
+│   ├── 注册
+│   ├── 登录
+│   └── 退出
+│
+├── 电影展示模块
+│   ├── 首页展示（Hero轮播、热门、高分、新上映）
+│   ├── 电影详情（基本信息、评论、评分、海报）
+│   └── 电影搜索（关键词、类型、年份、语言筛选）
+│
+├── 用户互动模块
+│   ├── 评分（0.5-10分）
+│   ├── 评论（发表、删除）
+│   ├── 收藏
+│   ├── 待看片单
+│   └── 我的片单
+│
+├── 数据分析模块
+│   ├── 概览统计（电影数、用户数、评分数）
+│   ├── 类型分布
+│   ├── 年份分布
+│   ├── 国家分布
+│   ├── 评分分布
+│   ├── 语言分布
+│   ├── 演员分布
+│   ├── 导演分布
+│   ├── 时长分布
+│   ├── 评论数分布
+│   ├── 国家-类型关联
+│   ├── 评分-时长关联
+│   ├── 获奖分布
+│   ├── 月度上映分布
+│   ├── 词云数据
+│   └── Top榜单
+│
+├── 智能推荐模块
+│   ├── 冷启动推荐（热门电影兜底）
+│   ├── 在线 NMF-ALS 协同过滤
+│   ├── 在线 GraphX 图相似推荐
+│   ├── 内容相似推荐（TF-IDF）
+│   ├── 混合推荐（加权融合）
+│   └── Spark 离线推荐导入
+│
+└── 媒体播放模块
+    ├── 预告片播放
+    ├── 正片播放
+    └── 海报展示
+```
+
+### 数据流图
+
+**顶层数据流图（Level 0）**：
+```
+用户 ──HTTP请求──→ Flask API ──SQL查询──→ MySQL(movies)
+    ←──HTTP响应──        ──SQL查询──→ SQLite(users, ratings, favorites...)
+                        ──调用──→ Spark VM（离线推荐计算）
+```
+
+**推荐子系统数据流（Level 1）**：
+```
+用户请求 /api/recommend/personal
+        │
+        ▼
+┌─────────────────────────────────────────┐
+│ hybrid_recommendations(user_id)          │
+└─────────────────────────────────────────┘
+        │
+        ├── rating_count < 3 ──→ 冷启动模式 ──→ 返回热门电影
+        │
+        └── rating_count >= 3
+                │
+                ├── 在线路径（实时计算）
+                │       │
+                │       ├── _online_als_scores() ──→ NMF分解评分矩阵
+                │       ├── _online_graphx_scores() ──→ 图相似扩展
+                │       └── _content_recommendations_for_user() ──→ TF-IDF内容相似
+                │               │
+                │               ▼
+                │       加权融合（ALS×0.7 + GraphX×0.2 + Content×0.1）
+                │
+                └── 离线路径（Spark批处理）
+                        │
+                        ├── 读取 spark/output/recommendations_*.json
+                        ├── 归一化各算法得分
+                        └── 加权融合输出
+                │
+                ▼
+        返回推荐结果（包含混合推荐 + 各算法独立结果）
+```
+
+**数据分析子系统数据流（Level 1）**：
+```
+用户请求 /api/analytics/*
+        │
+        ▼
+┌─────────────────────────────────────────┐
+│ analytics_service.py 各统计函数          │
+└─────────────────────────────────────────┘
+        │
+        ├── _parse_filters() ──→ 解析 genre/year/country 过滤条件
+        │
+        └── get_mysql() ──→ MySQL movies 表查询
+                │
+                ▼
+        返回统计数据（JSON格式）
+                │
+                ▼
+        前端 ECharts 可视化渲染
+```
+
+### 架构图
+
+**系统架构分层**：
+```
+┌─────────────────────────────────────────────────────────┐
+│                    前端层（Vue3）                         │
+│  ┌─────────┬─────────┬─────────┬─────────┬─────────┐   │
+│  │ HomeView│MovieView│Recommend│Analytic │AuthView │   │
+│  │         │ Detail  │View     │View     │         │   │
+│  └────┬────┴────┬────┴────┬────┴────┬────┴────┬────┘   │
+│       │         │         │         │         │         │
+└───────┼─────────┼─────────┼─────────┼─────────┼─────────┘
+        │         │         │         │         │
+        ▼         ▼         ▼         ▼         ▼
+┌─────────────────────────────────────────────────────────┐
+│                    API层（Flask）                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │ app.py（50+ API端点）                           │    │
+│  │ - /api/auth/*     用户认证                      │    │
+│  │ - /api/movies/*   电影管理                      │    │
+│  │ - /api/ratings    评分管理                      │    │
+│  │ - /api/favorites  收藏管理                      │    │
+│  │ - /api/comments   评论管理                      │    │
+│  │ - /api/analytics/* 数据分析                     │    │
+│  │ - /api/recommend/* 推荐服务                     │    │
+│  │ - /api/spark/*    Spark集成                     │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────┐
+│                    服务层（Python）                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │movie_service │  │recommend_    │  │recommendation│  │
+│  │.py           │  │service.py    │  │_service.py   │  │
+│  │- MySQL查询   │  │- NMF-ALS算法 │  │- 混合推荐策略 │  │
+│  │- 电影数据    │  │- 评分矩阵    │  │- 冷启动处理   │  │
+│  └──────────────┘  └──────────────┘  └──────────────┘  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │analytics_    │  │trailer_      │  │spark_vm_     │  │
+│  │service.py    │  │service.py    │  │client.py     │  │
+│  │- 统计分析    │  │- 预告片处理  │  │- Spark远程调用│  │
+│  │- 可视化数据  │  │              │  │              │  │
+│  └──────────────┘  └──────────────┘  └──────────────┘  │
+└─────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────┐
+│                    数据层                                 │
+│  ┌──────────────────────────┐  ┌──────────────────────┐ │
+│  │     MySQL（movies表）     │  │   SQLite（用户数据）  │ │
+│  │ - 6766部电影             │  │ - users（用户）      │ │
+│  │ - 22个字段               │  │ - user_ratings（评分）│ │
+│  │ - 通过 SQL 备份导入       │  │ - favorites（收藏）  │ │
+│  │                         │  │ - movie_comments（评论）│
+│  └──────────────────────────┘  └──────────────────────┘ │
+│  ┌──────────────────────────┐  ┌──────────────────────┐ │
+│  │     Spark（离线计算）     │  │   文件系统           │ │
+│  │ - ALS 协同过滤           │  │ - posters/（海报）   │ │
+│  │ - GraphX 图推荐          │  │ - trailers/（预告片）│ │
+│  │ - TF-IDF 内容推荐        │  │ - videos/（正片）    │ │
+│  └──────────────────────────┘  └──────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+```
+
+**关键设计说明**：
+- **双数据库架构**：movies 表使用 MySQL（数据量大、查询性能要求高），用户相关表使用 SQLite（轻量、快速开发）
+- **movies 表特殊处理**：未在 models.py 中定义，通过 `movies_backup.sql` 导入 MySQL，由 `movie_service.py` 使用 PyMySQL 直接查询
+- **推荐双模式**：在线模式（NMF-ALS 实时计算）+ 离线模式（Spark 批处理），用户评分 >= 3 时自动切换
+
+---
+
 ## 创新点
 
 1. **双算法推荐**：ALS 协同过滤 + GraphX 图 PageRank 融合

@@ -15,7 +15,7 @@ def main():
         .appName("ImportToMySQL") \
         .getOrCreate()
 
-    local_path = "/home/zsy/films/cleaned_data"
+    local_path = "../../films_data/cleaned_data"
     mysql_url = "jdbc:mysql://localhost:3306/movies_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai"
     mysql_user = "root"
 
