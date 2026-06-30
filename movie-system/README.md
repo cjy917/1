@@ -127,7 +127,7 @@ movie-system/
 │   ├── import_to_neo4j.py      # Neo4j 导入
 │   ├── extract_ratings.py      # 评分提取
 │   ├── movie_recommendation.py # 推荐算法示例
-│   └── download_home_trailers.py # 预告片下载
+│   └── download_home_trailers.py # 预告片下载（真实预告/演示模式）
 │
 ├── spark/                      # Spark 大数据脚本
 │   └── movie_recommend_als.py  # Spark MLlib ALS 推荐

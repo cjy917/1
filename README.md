@@ -141,6 +141,7 @@ npm run dev
 | `import_to_neo4j.py` | 将数据导入 Neo4j（图数据库） | `python import_to_neo4j.py` |
 | `extract_ratings.py` | 从评论中提取用户评分 | `python extract_ratings.py` |
 | `movie_recommendation.py` | 推荐算法示例（ALS/NMF） | `python movie_recommendation.py` |
+| `download_home_trailers.py` | 预告片下载（支持真实预告/演示模式） | `python download_home_trailers.py --mode real` |
 
 ### Spark 脚本（movie-system/spark/）
 
