@@ -686,6 +686,9 @@ def create_app() -> Flask:
         }
 
     # ==================== 数据分析接口 ====================
+    # 【前后端对应】← 前端路由对照标记
+    # 前端调用: analyticsApi.getFilterOptions(params)
+    # 路径: frontend/src/analytics/services/analytics.js 第311行
     @app.route("/api/analytics/filter-options")
     def analytics_filter_options_route():
         """数据分析筛选选项"""
@@ -694,6 +697,9 @@ def create_app() -> Flask:
         year_from = int(request.args.get("year_from", 2010))
         return jsonify(analytics_filter_options(genre_limit, country_limit, year_from))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getOverview(filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第81行
     @app.route("/api/analytics/overview")
     def analytics_overview():
         """概览统计"""
@@ -705,102 +711,147 @@ def create_app() -> Flask:
             )
         )
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getGenres(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第95行
     @app.route("/api/analytics/genres")
     def analytics_genres():
         """类型分布"""
         limit = min(int(request.args.get("limit", 15)), 50)
         return jsonify(genre_distribution(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getYears(filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第108行
     @app.route("/api/analytics/years")
     def analytics_years():
         """年份分布"""
         return jsonify(year_distribution(**analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getCountries(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第122行
     @app.route("/api/analytics/countries")
     def analytics_countries():
         """国家分布"""
         limit = min(int(request.args.get("limit", 12)), 50)
         return jsonify(country_distribution(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getRatings(filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第135行
     @app.route("/api/analytics/ratings")
     def analytics_ratings():
         """评分区间分布"""
         return jsonify(rating_distribution(**analytics_filters()))
 
-    @app.route("/api/analytics/rating-leaderboard")
-    def analytics_rating_leaderboard():
-        """评分排行榜"""
-        limit = min(int(request.args.get("limit", 10)), 20)
-        return jsonify({"items": rating_leaderboard(limit=limit)})
-
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getActors(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第231行
     @app.route("/api/analytics/actors")
     def analytics_actors():
         """演员分布"""
         limit = min(int(request.args.get("limit", 10)), 50)
         return jsonify(actor_distribution(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getTop(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第163行
     @app.route("/api/analytics/top")
     def analytics_top():
         """高分电影列表"""
         limit = min(int(request.args.get("limit", 12)), 50)
         return jsonify(top_movies(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getFeatured(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第177行
     @app.route("/api/analytics/featured")
     def analytics_featured():
         """精选电影列表"""
         limit = min(int(request.args.get("limit", 12)), 50)
         return jsonify(featured_movies(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getMovies(filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第190行
     @app.route("/api/analytics/movies")
     def analytics_movies():
         """电影列表（分析用）"""
         limit = min(int(request.args.get("limit", 500)), 1000)
         return jsonify(get_all_movies(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getLanguages(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第149行
     @app.route("/api/analytics/languages")
     def analytics_languages():
         """语言分布"""
         limit = min(int(request.args.get("limit", 10)), 50)
         return jsonify(language_distribution(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getDuration(filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第203行
     @app.route("/api/analytics/duration")
     def analytics_duration():
         """片长分布"""
         return jsonify(duration_distribution(**analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getDirectors(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第217行
     @app.route("/api/analytics/directors")
     def analytics_directors():
         """导演分布"""
         limit = min(int(request.args.get("limit", 10)), 50)
         return jsonify(director_distribution(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getReviews(filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第244行
     @app.route("/api/analytics/reviews")
     def analytics_reviews():
         """影评数分布"""
         return jsonify(review_count_distribution(**analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getCountryGenre(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第258行
     @app.route("/api/analytics/country-genre")
     def analytics_country_genre():
         """国家-类型关联"""
         limit = min(int(request.args.get("limit", 8)), 50)
         return jsonify(country_genre_correlation(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getRatingDuration(filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第271行
     @app.route("/api/analytics/rating-duration")
     def analytics_rating_duration():
         """评分-时长关联"""
         return jsonify(rating_duration_correlation(**analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getAwards(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第285行
     @app.route("/api/analytics/awards")
     def analytics_awards():
         """获奖分布"""
         limit = min(int(request.args.get("limit", 10)), 50)
         return jsonify(award_distribution(limit=limit, **analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getMonthly(filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第298行
     @app.route("/api/analytics/monthly")
     def analytics_monthly():
         """月度上映分布"""
         return jsonify(monthly_release_distribution(**analytics_filters()))
 
+    # 【前后端对应】
+    # 前端调用: analyticsApi.getWordcloud(limit, filters)
+    # 路径: frontend/src/analytics/services/analytics.js 第325行
     @app.route("/api/analytics/wordcloud")
     def analytics_wordcloud():
         """词云数据"""
