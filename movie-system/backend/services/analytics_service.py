@@ -7,6 +7,13 @@
 【调用链】
 app.py → analytics_service.py → movie_service.py.get_mysql() → MySQL movies 表
 
+【数据传递方式】← app.py与本模块数据传递标记
+app.py 通过直接调用本模块的函数来传递数据：
+1. app.py 解析前端请求参数（request.args）→ analytics_filters() 返回字典
+2. 通过 **kwargs 解包传递给本模块函数（如 overview_stats(genre='Action', year='2020')）
+3. 本模块函数使用 get_mysql() 获取数据库连接 → 执行 SQL 查询
+4. 查询结果处理为 Python 字典/列表 → 返回给 app.py → jsonify() 返回给前端
+
 【支持的统计功能】
   - 概览统计（overview_stats）
   - 类型分布（genre_distribution）

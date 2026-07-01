@@ -105,6 +105,16 @@ from flask_cors import CORS
 
 from config import DEFAULT_PAGE_SIZE, FRONTEND_DIST, MAX_PAGE_SIZE
 from models import Favorite, MovieComment, PlaybackCache, User, UserListItem, UserRating, Watchlist, db
+# ==================== 导入数据分析服务 ====================
+# 【数据传递方式】← 前后端对照标记
+# app.py 通过直接调用 analytics_service.py 的函数来传递数据：
+# 1. app.py 解析前端请求参数（request.args）
+# 2. 将参数打包为关键字参数（**analytics_filters()）
+# 3. 调用 analytics_service.py 的对应函数
+# 4. 函数返回结果 → jsonify() → 返回给前端
+#
+# 示例调用链：
+# app.py analytics_overview() → analytics_service.py overview_stats(genre, year, country, ...) → MySQL查询 → 返回字典 → jsonify()
 from services.analytics_service import (
     actor_distribution,
     analytics_filter_options,
