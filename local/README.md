@@ -11,9 +11,10 @@
 
 ## 原则
 
-1. **主代码不变**：`movie-system/backend/app.py`、`movie-system/frontend/vite.config.js` 等共享文件保持 Windows 团队标准（如后端端口 `5000`）。
-2. **Mac 差异放这里**：端口冲突、路径差异等只在 `local/mac/` 中覆盖。
-3. **虚拟环境不入库**：`.venv/`、`node_modules/` 各自本地创建，已通过 `.gitignore` 忽略。
+1. **主代码不变**：`movie-system/backend/app.py`、`movie-system/frontend/vite.config.js` 等共享文件保持 Windows 团队标准（后端 `5000`，前端 `5173`）。
+2. **Mac 默认与 Windows 一致**：关闭 AirPlay 接收器后，全员继续使用端口 `5000`，无需本地覆盖。
+3. **Mac 差异放这里（备用）**：仅当 AirPlay 重新开启、5000 被占用时，才使用 `local/mac/` 副本配置。
+4. **虚拟环境不入库**：`.venv/`、`node_modules/` 各自本地创建，已通过 `.gitignore` 忽略。
 
 ## Mac 开发者
 
