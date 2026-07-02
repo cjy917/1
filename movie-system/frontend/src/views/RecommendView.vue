@@ -22,10 +22,8 @@ const contentItems = ref([])
 const popularItems = ref([])
 
 const STRATEGY_MODE = {
-  spark_hybrid: 'Spark 混合推荐',
+  spark_hybrid: 'Spark混合推荐',
   spark_pending: '待 Spark 刷新',
-  online_hybrid: '在线混合推荐',
-  hybrid: '在线混合推荐',
   cold_start: '冷启动 · 仅热门推荐',
 }
 
@@ -49,7 +47,7 @@ const statusRatingText = computed(() => {
 
 const statusComputeText = computed(() => {
   if (refreshing.value) return 'VM Spark 批处理计算中…'
-  if (isSparkMode.value) return 'Spark 批处理（Ubuntu VM）'
+  if (isSparkMode.value) return 'Spark批处理（Ubuntu VM）'
   if (strategy.value === 'cold_start') return '热门兜底（与首页一致）'
   if (isSparkPending.value) return '等待刷新触发 Spark'
   return '—'
@@ -87,7 +85,7 @@ const showOnlineBanner = computed(
 
 const ratingGuideMessage = computed(() => {
   if (ratingCount.value <= 0) {
-    return '你还没有评分记录，先给 3 部电影打分，系统将为你生成个性化推荐'
+    return '你还没有评分记录，先给3部电影打分，系统将为你生成个性化推荐'
   }
   const remain = RATING_GOAL - ratingCount.value
   return `已评分 ${ratingCount.value} 部，再评 ${remain} 部即可解锁 Spark 个性化推荐`
@@ -102,38 +100,35 @@ function goLogin() {
 }
 
 const sections = computed(() => {
-  const spark = isSparkMode.value
   const rows = [
     {
       key: 'hybrid',
       title: '为你综合推荐',
-      subtitle: spark
-        ? 'Spark ALS 0.7 + GraphX 0.2 + TF-IDF 0.1'
-        : '在线 NMF 矩阵分解 0.7 + 在线协同 0.2 + 类型相似 0.1',
+      subtitle: 'Spark ALS 0.7 + GraphX 0.2 + TF-IDF 0.1',
       movies: hybridItems.value,
     },
     {
       key: 'als',
-      title: '协同过滤 · 猜你喜欢',
-      subtitle: spark ? 'Spark MLlib ALS（含最新同步评分）' : '在线 NMF 矩阵分解（含你的最新评分）',
+      title: '猜你喜欢',
+      subtitle: 'Spark MLlib ALS（含最新同步评分）',
       movies: alsItems.value,
     },
     {
       key: 'graphx',
       title: '相似用户也在看',
-      subtitle: spark ? 'Spark GraphX 图协同推荐' : '在线用户协同 / 图相似扩展',
+      subtitle: 'Spark GraphX 图协同推荐',
       movies: graphxItems.value,
     },
     {
       key: 'content',
-      title: '喜欢这类 · 同类推荐',
-      subtitle: spark ? 'Spark TF-IDF 内容相似' : 'MySQL 类型/导演相似度',
+      title: '同类推荐',
+      subtitle: 'Spark TF-IDF 内容相似度',
       movies: contentItems.value,
     },
     {
       key: 'popular',
       title: '热门推荐',
-      subtitle: '与首页「热门电影」相同 · 按评价人数排序',
+      subtitle: '按评价人数排序',
       movies: popularItems.value,
     },
   ]
@@ -205,7 +200,7 @@ onActivated(load)
       <div>
         <h1 class="text-3xl font-bold">智能推荐</h1>
         <p class="mt-2 text-sm text-muted">
-          评满 3 部后由 Ubuntu VM 上的 Spark 批处理生成推荐；修改评分后请点击「刷新推荐」重算
+          评满3部后由Ubuntu VM上的Spark批处理生成推荐；修改评分后请点击「刷新推荐」
         </p>
       </div>
       <div class="flex flex-wrap gap-3">
@@ -226,7 +221,7 @@ onActivated(load)
       <div class="onboard-banner__body">
         <h3 class="onboard-banner__title">开启个性化推荐</h3>
         <p class="onboard-banner__text">
-          登录并给 3 部电影打分，然后点击「刷新推荐」在 VM 上运行 Spark 生成个性化结果。
+          登录并给3部电影打分，然后点击「刷新推荐」在VM上运行Spark生成个性化结果。
         </p>
         <div class="onboard-banner__actions">
           <button type="button" class="onboard-btn onboard-btn--primary" @click="goLogin">
@@ -328,11 +323,11 @@ onActivated(load)
     </div>
 
     <div v-if="refreshing" class="py-16 text-center text-muted">
-      Spark 批处理计算中，约需 1～3 分钟，请稍候…
+      Spark批处理计算中，约需1～3分钟，请稍候…
     </div>
     <div v-else-if="loading" class="py-16 text-center text-muted">加载推荐中...</div>
     <div v-else-if="!hasAnyItems" class="py-16 text-center text-muted">
-      暂无推荐。评满 3 部后请点击「刷新推荐」，在 VM 上运行 Spark 生成结果。
+      暂无推荐。评满3部后请点击「刷新推荐」哦。
     </div>
     <template v-else>
       <section v-for="section in sections" :key="section.key" class="mb-10">

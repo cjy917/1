@@ -1,0 +1,57 @@
+﻿ffmpeg: C:\Users\hhhhhha\AppData\Roaming\Python\Python313\site-packages\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v7.1.exe
+鐩爣娓呮櫚搴? 鏈€楂?1080p
+
+鍏?12 閮ㄧ數褰憋紙banner, popular锛?
+
+[1/12] 姹夊瘑灏旈】 Hamilton 鈥?宸叉湁鏈湴棰勫憡锛岃烦杩?
+[2/12] 闆锋浖鍏勫紵涓夐儴鏇?National Theatre Live: The Lehman Trilogy 鈥?宸叉湁鏈湴棰勫憡锛岃烦杩?
+[3/12] 鐏佃兘鐧惧垎鐧綢I OVA 銉儢銈点偆銈?00 绗竴鍥為湂銇ㄣ亱鐩歌珖鎵€鎱板畨鏃呰锝炪偝銈炽儹婧€銇熴仚鐧掋倓銇椼伄鏃咃綖 鈥?宸叉湁鏈湴棰勫憡锛岃烦杩?
+[4/12] 鎮叉儴涓栫晫锛氶煶涔愪細鐜板満 Les Mis茅rables: The Staged Concert 鈥?宸叉湁鏈湴棰勫憡锛岃烦杩?
+[5/12] 瀵勭敓铏?旮办儩於?鈥?宸叉湁鏈湴棰勫憡锛岃烦杩?
+[6/12] 缁跨毊涔?鈥?宸叉湁鏈湴棰勫憡锛岃烦杩?
+[7/12] 鍝悞涔嬮瓟绔ラ檷涓?鈥?宸叉湁鏈湴棰勫憡锛岃烦杩?
+[8/12] 娴佹氮鍦扮悆 鈥?宸叉湁鏈湴棰勫憡锛岃烦杩?
+[9/12] 灏戝勾鐨勪綘 鈥?瑙ｆ瀽 TMDB 棰勫憡 鈥?
+[9/12] 灏戝勾鐨勪綘 鈥?涓嬭浇 vtjEqBwNPt0 鈥?
+python : ERROR: [youtube] vtjEqBwNPt0: Unable to download API page: (<HTTPSConnection(host='www.youtube.com', port=443)
+ at 0x1fbacea39d0>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)') (caused by TransportError("(<HTT
+PSConnection(host='www.youtube.com', port=443) at 0x1fbacea39d0>, 'Connection to www.youtube.com timed out. (connect ti
+meout=60.0)')"))
+所在位置 C:\Users\hhhhhha\AppData\Local\Temp\ps-script-f7654536-8dc0-4298-9205-814216951bc1.ps1:130 字符: 113
++ ... vie-system"; python -u scripts/download_home_trailers.py 2>&1 | Out-F ...
++                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ERROR: [youtube...eout=60.0)')")):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  yt-dlp 澶辫触: ERROR: [youtube] vtjEqBwNPt0: Unable to download API page: (<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fbacea39d0>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)') (caused by TransportError("(<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fbacea39d0>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)')"))
+[9/12] 灏戝勾鐨勪綘 鈥?涓嬭浇澶辫触
+[10/12] 澶嶄粐鑰呰仈鐩?锛氱粓灞€涔嬫垬 Avengers: Endgame 鈥?妫€娴嬪埌鏃х増浣庢竻鏂囦欢 (2.5 MB)锛岄噸鏂颁笅杞?鈥?
+[10/12] 澶嶄粐鑰呰仈鐩?锛氱粓灞€涔嬫垬 Avengers: Endgame 鈥?瑙ｆ瀽 TMDB 棰勫憡 鈥?
+[10/12] 澶嶄粐鑰呰仈鐩?锛氱粓灞€涔嬫垬 Avengers: Endgame 鈥?涓嬭浇 AMSITikqKiM 鈥?
+ERROR: [youtube] AMSITikqKiM: Unable to download API page: (<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fb
+acf25f90>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)') (caused by TransportError("(<HTTPSConnect
+ion(host='www.youtube.com', port=443) at 0x1fbacf25f90>, 'Connection to www.youtube.com timed out. (connect timeout=60.
+0)')"))
+  yt-dlp 澶辫触: ERROR: [youtube] AMSITikqKiM: Unable to download API page: (<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fbacf25f90>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)') (caused by TransportError("(<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fbacf25f90>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)')"))
+[10/12] 澶嶄粐鑰呰仈鐩?锛氱粓灞€涔嬫垬 Avengers: Endgame 鈥?涓嬭浇澶辫触
+[11/12] 蹇冪伒濂囨梾 Soul 鈥?妫€娴嬪埌鏃х増浣庢竻鏂囦欢 (4.6 MB)锛岄噸鏂颁笅杞?鈥?
+[11/12] 蹇冪伒濂囨梾 Soul 鈥?瑙ｆ瀽 TMDB 棰勫憡 鈥?
+[11/12] 蹇冪伒濂囨梾 Soul 鈥?涓嬭浇 Gs--6c7Hn_A 鈥?
+ERROR: [youtube] Gs--6c7Hn_A: Unable to download API page: (<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fb
+acf274d0>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)') (caused by TransportError("(<HTTPSConnect
+ion(host='www.youtube.com', port=443) at 0x1fbacf274d0>, 'Connection to www.youtube.com timed out. (connect timeout=60.
+0)')"))
+  yt-dlp 澶辫触: ERROR: [youtube] Gs--6c7Hn_A: Unable to download API page: (<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fbacf274d0>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)') (caused by TransportError("(<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fbacf274d0>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)')"))
+[11/12] 蹇冪伒濂囨梾 Soul 鈥?涓嬭浇澶辫触
+[12/12] 灏忎笐 Joker 鈥?妫€娴嬪埌鏃х増浣庢竻鏂囦欢 (4.8 MB)锛岄噸鏂颁笅杞?鈥?
+[12/12] 灏忎笐 Joker 鈥?瑙ｆ瀽 TMDB 棰勫憡 鈥?
+[12/12] 灏忎笐 Joker 鈥?涓嬭浇 -RFFRxcoKfA 鈥?
+ERROR: [youtube] -RFFRxcoKfA: Unable to download API page: (<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fb
+acf27750>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)') (caused by TransportError("(<HTTPSConnect
+ion(host='www.youtube.com', port=443) at 0x1fbacf27750>, 'Connection to www.youtube.com timed out. (connect timeout=60.
+0)')"))
+  yt-dlp 澶辫触: ERROR: [youtube] -RFFRxcoKfA: Unable to download API page: (<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fbacf27750>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)') (caused by TransportError("(<HTTPSConnection(host='www.youtube.com', port=443) at 0x1fbacf27750>, 'Connection to www.youtube.com timed out. (connect timeout=60.0)')"))
+[12/12] 灏忎笐 Joker 鈥?涓嬭浇澶辫触
+
+瀹屾垚锛氭垚鍔?0锛岃烦杩?8锛屽け璐?4
+棰勫憡鐗囩洰褰曪細D:\澶т笁涓媆xt2\trailers

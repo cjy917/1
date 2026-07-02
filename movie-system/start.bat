@@ -11,8 +11,9 @@ python scripts\import_films_data.py
 echo ===== 修复海报路径（豆瓣 p*.webp） =====
 python scripts\fix_poster_paths.py
 
-echo ===== 导出评分数据供 Spark 使用 =====
+echo ===== 导出评分与电影特征供 Spark 使用（来源：SQLite + MySQL） =====
 python scripts\export_spark_ratings.py
+python scripts\export_spark_movies.py
 
 echo ===== 启动 Web 服务 =====
 echo 访问地址: http://127.0.0.1:5000

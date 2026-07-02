@@ -114,8 +114,27 @@ def download_output_from_vm() -> list[str]:
     return saved
 
 
+def sync_movies_catalog_to_vm(catalog_path: Path | None = None) -> dict:
+    catalog_path = catalog_path or (SPARK_DATA_DIR / "movies_catalog.ndjson")
+    if not catalog_path.exists():
+        raise SparkVMError(f"缺少电影特征文件: {catalog_path}")
+    body = catalog_path.read_bytes()
+    try:
+        resp = requests.post(
+            _vm_url("/sync/movies"),
+            data=body,
+            headers={"Content-Type": "application/x-ndjson"},
+            timeout=120,
+        )
+    except requests.RequestException as exc:
+        raise SparkVMError(f"无法连接 VM Spark 网关 ({SPARK_VM_URL}): {exc}") from exc
+    if resp.status_code != 200:
+        raise SparkVMError(f"同步 movies catalog 失败: {resp.text}")
+    return resp.json()
+
+
 def run_spark_pipeline_on_vm() -> dict:
-    """评分同步 → 触发 Spark 重算 → 等待完成 → 拉回三份 JSON。"""
+    """评分与片库同步 → 触发 Spark 重算 → 等待完成 → 拉回三份 JSON。"""
     if not SPARK_VM_ENABLED:
         raise SparkVMError("SPARK_VM_ENABLED=false，未启用 VM Spark 网关")
     if not vm_available():
@@ -123,7 +142,10 @@ def run_spark_pipeline_on_vm() -> dict:
             f"VM Spark 网关不可用 ({SPARK_VM_URL})。"
             "请在 Ubuntu 上运行: python3 spark/vm_recommend_server.py"
         )
-    sync_info = sync_ratings_to_vm()
+    sync_info = {
+        "ratings": sync_ratings_to_vm(),
+        "movies": sync_movies_catalog_to_vm(),
+    }
     trigger_recompute_on_vm()
     status = wait_for_vm_job()
     files = download_output_from_vm()

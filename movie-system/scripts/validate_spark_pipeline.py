@@ -139,7 +139,7 @@ def main() -> int:
         print("VM 修复步骤:")
         print("  1. 确保 cs1/films_data 已同步到虚拟机")
         print("  2. 从 Windows 复制 spark/data/ratings.json（或运行 export_spark_ratings.py）")
-        print("  3. cd movie-system2/movie-system2/spark && RECOMPILE=1 bash run_spark_jobs.sh")
+        print("  3. cd movie-system/movie-system/spark && RECOMPILE=1 bash run_spark_jobs.sh")
         print("  4. 将 spark/output/*.json 拷回 Windows 同路径")
         print("  5. 再运行本脚本验证")
         return 1

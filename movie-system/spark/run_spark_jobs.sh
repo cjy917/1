@@ -1,13 +1,10 @@
 #!/bin/bash
 # Spark 推荐任务运行脚本（Ubuntu 18.04 + Spark 3.3.4）
-# 现场演示用在线版即可；本脚本用于答辩展示 Spark 离线批处理。
+# 输入数据来自 Windows 同步的 NDJSON（由 MySQL/SQLite 导出），不再依赖 films_data 目录。
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CS1_ROOT="$(cd "$ROOT/../.." && pwd)"
 SPARK_HOME="${SPARK_HOME:-/opt/bigdata/spark}"
 SPARK_SUBMIT="$SPARK_HOME/bin/spark-submit"
-FILMS_DATA="${FILMS_DATA:-$CS1_ROOT/films_data}"
-DOUBAN_DATA="$FILMS_DATA/cleaned_data/douban"
 
 export SPARK_LOCAL_IP="${SPARK_LOCAL_IP:-127.0.0.1}"
 
@@ -32,12 +29,12 @@ to_file_url() {
 
 echo "===== 环境检查 ====="
 echo "SPARK_HOME=$SPARK_HOME"
-echo "FILMS_DATA=$FILMS_DATA"
 java -version
 mvn -v | head -1
 "$SPARK_SUBMIT" --version 2>&1 | grep "version" | head -1
 
 RATINGS="$ROOT/spark/data/ratings.json"
+MOVIES_CATALOG="$ROOT/spark/data/movies_catalog.ndjson"
 OUTPUT_DIR="$ROOT/spark/output"
 mkdir -p "$OUTPUT_DIR" "$(dirname "$RATINGS")"
 
@@ -50,8 +47,7 @@ if [ -f "$RATINGS" ]; then
     echo "使用已有 ratings.json: $RATINGS (${RATING_LINES} 行, ${RATING_BYTES} 字节)"
     if [ "$FIRST_CHAR" = "[" ] || [ "$RATING_LINES" -lt 100 ]; then
         echo "错误: ratings.json 仍是旧版 JSON 数组或行数过少，Spark 只会读到 1 条评分。"
-        echo "请从 Windows 复制 NDJSON 版本（约 4700+ 行，首字符为 {）："
-        echo "  movie-system/movie-system/spark/data/ratings.json"
+        echo "请在 Windows 点击「刷新推荐」或运行 scripts/export_spark_ratings.py"
         exit 1
     fi
 elif [ -f "$ROOT/scripts/export_spark_ratings.py" ] && command -v python3 &>/dev/null; then
@@ -59,16 +55,26 @@ elif [ -f "$ROOT/scripts/export_spark_ratings.py" ] && command -v python3 &>/dev
     python3 scripts/export_spark_ratings.py
 else
     echo "错误: 找不到 $RATINGS"
-    echo "请从 Windows 运行 export 后复制 spark/data/ratings.json 到虚拟机。"
+    echo "请从 Windows 同步 spark/data/ratings.json 到虚拟机。"
     exit 1
 fi
 
-if [ ! -d "$DOUBAN_DATA" ]; then
-    echo "警告: 找不到豆瓣电影数据 ($DOUBAN_DATA)"
-    echo "内容推荐将失败。请确保 cs1/films_data/cleaned_data/douban 已同步到 VM。"
-elif ! ls "$DOUBAN_DATA"/*/part-*.csv >/dev/null 2>&1; then
-    echo "警告: $DOUBAN_DATA 下无 */part-*.csv，TF-IDF 将失败。"
-    echo "请同步整个 films_data/cleaned_data/douban/ 目录。"
+echo ""
+echo "===== 准备电影特征目录 ====="
+if [ -f "$MOVIES_CATALOG" ]; then
+    MOVIE_LINES=$(wc -l < "$MOVIES_CATALOG" | tr -d ' ')
+    echo "使用已有 movies_catalog.ndjson: $MOVIES_CATALOG (${MOVIE_LINES} 行)"
+    if [ "$MOVIE_LINES" -lt 100 ]; then
+        echo "错误: movies_catalog.ndjson 行数过少，TF-IDF 将失败。"
+        exit 1
+    fi
+elif [ -f "$ROOT/scripts/export_spark_movies.py" ] && command -v python3 &>/dev/null; then
+    cd "$ROOT"
+    python3 scripts/export_spark_movies.py
+else
+    echo "错误: 找不到 $MOVIES_CATALOG"
+    echo "请从 Windows 同步 spark/data/movies_catalog.ndjson 到虚拟机。"
+    exit 1
 fi
 
 JAR="$ROOT/spark/target/movie-recommend-spark-1.0.0.jar"
@@ -87,7 +93,7 @@ fi
 SPARK_OPTS="--driver-memory 2g --executor-memory 2g --conf spark.driver.host=127.0.0.1 --conf spark.hadoop.fs.defaultFS=file:/// --conf spark.sql.warehouse.dir=file:///tmp/spark-warehouse"
 
 RATINGS_URL="$(to_file_url "$RATINGS")"
-FILMS_DATA_URL="$(to_file_url "$FILMS_DATA")"
+MOVIES_CATALOG_URL="$(to_file_url "$MOVIES_CATALOG")"
 
 run_job() {
     local name="$1"
@@ -115,7 +121,7 @@ run_job "2/3 GraphX 图协同推荐" \
 
 run_job "3/3 TF-IDF 内容推荐" \
     --driver-memory 3g --class edu.xt1.spark.MovieRecommendContentBased "$JAR" \
-    "$FILMS_DATA_URL" "$RATINGS_URL" "$OUTPUT_DIR/recommendations_content.json" || FAIL=1
+    "$MOVIES_CATALOG_URL" "$RATINGS_URL" "$OUTPUT_DIR/recommendations_content.json" || FAIL=1
 
 echo ""
 echo "===== 运行结果 ====="
@@ -130,4 +136,4 @@ if [ "$FAIL" -ne 0 ]; then
     echo "部分任务失败，请查看上方日志。"
     exit 1
 fi
-echo "全部完成。现场演示用 Windows 在线版即可，Spark 结果用于答辩展示离线 pipeline。"
+echo "全部完成。数据来源：MySQL movies + SQLite 评分（经 NDJSON 同步到 VM）。"

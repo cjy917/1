@@ -52,7 +52,7 @@ object MovieRecommendContentBased {
   }
 
   def main(args: Array[String]): Unit = {
-    val moviesPath = if (args.length > 0) args(0) else "../../films_data"
+    val moviesPath = if (args.length > 0) args(0) else "data/movies_catalog.ndjson"
     val ratingsPath = if (args.length > 1) args(1) else "data/ratings.json"
     val outputPath = if (args.length > 2) args(2) else "output/recommendations_content.json"
     val topN = 10
@@ -69,19 +69,13 @@ object MovieRecommendContentBased {
     val ratings = spark.read.json(ratingsUri).as[Rating].collect()
     val seedMovieIds = ratings.map(_.movieId).distinct.toSet
 
-    val csvPattern = s"${SparkLocalPaths.toUri(moviesPath)}/cleaned_data/douban/*/part-*.csv"
-    val movies = spark.read.option("header", true).csv(csvPattern)
+    val moviesUri = SparkLocalPaths.toUri(moviesPath)
+    val movies = spark.read.json(moviesUri)
       .select(
-        col("movie_id").cast("string").alias("movieId"),
-        concat_ws(" ",
-          coalesce(col("genres"), lit("")),
-          coalesce(col("directors"), lit("")),
-          coalesce(col("actors"), lit("")),
-          coalesce(col("languages"), lit("")),
-          coalesce(col("countries"), lit(""))
-        ).alias("featureText")
+        col("movieId").cast("string").alias("movieId"),
+        col("featureText").alias("featureText")
       )
-      .filter(col("movieId").isNotNull)
+      .filter(col("movieId").isNotNull && col("featureText").isNotNull)
       .dropDuplicates("movieId")
 
     val tokenizer = new Tokenizer().setInputCol("featureText").setOutputCol("words")

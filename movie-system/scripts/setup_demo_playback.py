@@ -16,7 +16,7 @@ ROOT_DIR = BASE_DIR.parent.parent
 BACKEND_DIR = BASE_DIR.parent / "backend"
 VIDEO_DIR = ROOT_DIR / "videos"
 TRAILER_DIR = ROOT_DIR / "trailers"
-ASSETS_DIR = ROOT_DIR / "movie-system2" / "media"
+ASSETS_DIR = ROOT_DIR / "movie-system" / "media"
 
 DEMO_MP4 = "https://www.w3school.com.cn/example/html5/mov_bbb.mp4"
 

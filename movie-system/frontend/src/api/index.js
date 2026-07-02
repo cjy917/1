@@ -70,17 +70,8 @@ export const recommendApi = {
   guest: () => api.get('/recommend/guest'),
 }
 
-export const sparkApi = {
-  importResults: () => api.post('/spark/load-results'),
-  exportRatings: () => api.post('/spark/export-ratings'),
-}
-
 export const commentApi = {
   list: (movie_id) => api.get(`/movies/${movie_id}/comments`),
   submit: (data) => api.post('/comments', data),
   remove: (movie_id) => api.delete('/comments', { params: { movie_id } }),
-}
-
-export const adminApi = {
-  preview: () => api.get('/admin/data-preview'),
 }

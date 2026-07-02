@@ -3,6 +3,7 @@
 """
 Ubuntu VM 上的 Spark 推荐网关（兼容 Python 3.6+）。
 - POST /sync/ratings     接收 Windows 同步的 ratings.json（NDJSON）
+- POST /sync/movies      接收 Windows 同步的 movies_catalog.ndjson（NDJSON）
 - POST /spark/recompute  后台运行 run_spark_jobs.sh
 - GET  /spark/status     查询批处理状态
 - GET  /output/<name>    下载 recommendations_*.json
@@ -81,7 +82,6 @@ def _run_spark_jobs():
 
     env = os.environ.copy()
     env.setdefault("SPARK_HOME", "/opt/bigdata/spark")
-    env.setdefault("FILMS_DATA", str(Path.home() / "cs1/films_data"))
     env["RECOMPILE"] = "0"
     env["PATH"] = env["SPARK_HOME"] + "/bin:" + env.get("PATH", "")
 
@@ -214,6 +214,28 @@ class RecommendHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path == "/sync/movies":
+            body = _read_body(self)
+            if not body.strip():
+                _json_response(self, 400, {"error": "empty body"})
+                return
+            SPARK_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            dest = SPARK_DATA_DIR / "movies_catalog.ndjson"
+            dest.write_bytes(body)
+            text = body.decode("utf-8", errors="replace")
+            lines = len([ln for ln in text.splitlines() if ln.strip()])
+            _json_response(
+                self,
+                200,
+                {
+                    "message": "movies catalog synced",
+                    "path": str(dest),
+                    "lines": lines,
+                    "bytes": len(body),
+                },
+            )
+            return
+
         if path == "/spark/recompute":
             code, payload = _start_recompute()
             _json_response(self, code, payload)
@@ -230,6 +252,7 @@ def main():
     print("  Python: %s" % sys.version.split()[0])
     print("  project: %s" % PROJECT_ROOT)
     print("  ratings: %s" % (SPARK_DATA_DIR / "ratings.json"))
+    print("  movies:  %s" % (SPARK_DATA_DIR / "movies_catalog.ndjson"))
     print("  output:  %s" % SPARK_OUTPUT_DIR)
     httpd.serve_forever()
 
