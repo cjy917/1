@@ -27,3 +27,20 @@ _SUCCESS
 
 # ===== 新增：忽略 IDE 工作区（如果你不想上传 .idea 可以加这行） =====
 .idea/
+
+# ===== 跨平台：macOS 系统文件（勿提交） =====
+.DS_Store
+.AppleDouble
+.LSOverride
+**/.DS_Store
+
+# ===== 跨平台：各开发者本地 Python 虚拟环境（勿提交） =====
+.venv/
+venv/
+env/
+**/node_modules/
+
+# ===== 本地开发覆盖配置（个人/Mac 专用，勿提交） =====
+local/mac/.env
+local/mac/*.local
+local/**/.env

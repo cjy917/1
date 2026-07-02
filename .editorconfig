@@ -1,0 +1,16 @@
+# 跨平台编辑器统一配置（以 Windows 团队协作为准）
+# https://editorconfig.org
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{sh,bash}]
+end_of_line = lf
+
+[*.md]
+trim_trailing_whitespace = false
