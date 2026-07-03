@@ -96,7 +96,10 @@ def create_app() -> Flask:
 
     @app.route("/api/health")
     def health():
-        stats = overview_stats(User.query.count(), UserRating.query.count())
+        stats = overview_stats(
+            user_count=User.query.count(),
+            rating_count=UserRating.query.count(),
+        )
         return jsonify({"status": "ok", **stats})
 
     @app.route("/api/auth/register", methods=["POST"])

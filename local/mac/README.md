@@ -25,7 +25,69 @@ Mac 与 Windows **统一使用标准端口**：
 
 ---
 
-## 标准启动（推荐，与 Windows 相同）
+## Mac 本地 MySQL 初始化（一次性，与 Windows 组员对齐配置）
+
+> 电影主数据 6766 条存储在 MySQL `movies_db.movies` 表（和 Windows 组员完全一致）。
+> 密码 `123456`、数据库名 `movies_db`、主机 `localhost:3306`，与主仓库 `config.py` 完全一致。
+
+### 安装 & 初始化
+
+```bash
+# 1. 安装 ARM64 版 MySQL（M5 芯片）
+brew install mysql
+
+# 2. 创建并初始化数据目录（brew 默认路径 /opt/homebrew/var/mysql）
+mkdir -p /opt/homebrew/var/mysql && chmod 700 /opt/homebrew/var/mysql
+/opt/homebrew/opt/mysql/bin/mysqld --initialize-insecure --user=$(whoami) --datadir=/opt/homebrew/var/mysql
+
+# 3. 后台启动 MySQL（若 brew services 有权限，也可用 brew services start mysql）
+/opt/homebrew/opt/mysql/bin/mysqld_safe --datadir=/opt/homebrew/var/mysql &
+
+# 4. 设置 root 密码、建库、导入仓库自带备份（就是组员用的那份）
+/opt/homebrew/opt/mysql/bin/mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '123456'; FLUSH PRIVILEGES;"
+/opt/homebrew/opt/mysql/bin/mysql -u root -p123456 -e "CREATE DATABASE IF NOT EXISTS movies_db DEFAULT CHARACTER SET utf8mb4;"
+/opt/homebrew/opt/mysql/bin/mysql -u root -p123456 movies_db < films_data/movies_backup.sql
+
+# 5. 验证（应输出 6766）
+/opt/homebrew/opt/mysql/bin/mysql -u root -p123456 movies_db -e "SELECT COUNT(*) FROM movies;"
+```
+
+### 日常启动 / 开机自启
+
+两种方式选其一（推荐 `brew services`，能开机自启）：
+
+| 方式 | 命令 | 说明 |
+|------|------|------|
+| 开机自启（推荐） | `brew services start mysql` | 需要首次手动在**非沙箱终端**执行 |
+| 临时后台启动 | `/opt/homebrew/opt/mysql/bin/mysqld_safe --datadir=/opt/homebrew/var/mysql &` | 重启电脑后需要重跑 |
+
+> 🔔 「一键启动脚本」`start-mac.sh` 已内置 MySQL 自动检测：发现 3306 未监听时会自动尝试启动。
+
+---
+
+## 一键启动脚本（推荐，对齐 Windows start-system.bat）
+
+脚本放在 `local/mac/`，不修改主仓库任何文件，行为与 Windows 组员的 `start-system.bat` 完全一致（自动清理旧进程、开独立 Terminal 窗口分别跑前后端）。
+
+```bash
+# 首次使用：加执行权限（一次性）
+chmod +x local/mac/start-mac.sh local/mac/stop-mac.sh
+
+# 在仓库根目录 GitHub/ 下执行
+./local/mac/start-mac.sh
+# 脚本会：检查环境 → 清理 5000/5173 旧进程 → 开两个 Terminal 窗口 → 打印访问地址
+
+# 停止服务
+./local/mac/stop-mac.sh
+```
+
+效果：
+- Terminal 窗口标题分别为 `SparkMovie Backend :5000` 和 `SparkMovie Frontend :5173`
+- 访问地址：`http://localhost:5173`（与 Windows 组员一致）
+
+---
+
+## 标准启动（手动，与 Windows 相同）
 
 ```bash
 # 后端
@@ -68,6 +130,8 @@ npm run dev -- --config ../../local/mac/vite.config.js
 
 | 文件 | 说明 |
 |------|------|
+| `start-mac.sh` | ✅ **日常使用**：Mac 一键启动脚本（对齐 Windows start-system.bat） |
+| `stop-mac.sh` | ✅ **日常使用**：Mac 一键停止脚本（清理 5000/5173 进程） |
 | `vite.config.js` | **备用**：AirPlay 开启时前端代理到 5001 |
 | `.env.example` | **备用**：本地环境变量模板 |
 | `patches/` | 可选的团队级跨平台改进（需协商后合并） |
