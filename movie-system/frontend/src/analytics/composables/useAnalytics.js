@@ -47,7 +47,7 @@ async function fetchDashboard(filters = {}, { includeFeatured = true, silent = f
       analyticsApi.getCountries(12, filters),
       analyticsApi.getRatings(filters),
       analyticsApi.getLanguages(10, filters),
-      analyticsApi.getTop(10, filters),
+      analyticsApi.getTop(12, filters),
       analyticsApi.getDuration(filters),
       analyticsApi.getDirectors(10, filters),
       analyticsApi.getActors(10, filters),
@@ -128,7 +128,7 @@ export function useAnalytics() {
 
   async function loadTopMoviesOnly(filters = {}) {
     try {
-      topMovies.value = await analyticsApi.getTop(10, filters)
+      topMovies.value = await analyticsApi.getTop(12, filters)
     } catch (err) {
       console.error('加载热门电影失败:', err)
     }

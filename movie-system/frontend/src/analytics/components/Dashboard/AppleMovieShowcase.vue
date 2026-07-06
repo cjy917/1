@@ -56,9 +56,9 @@ function updateDepthEffect() {
     return
   }
   
+  const wrapRect = wrap.getBoundingClientRect()
   const items = carousel.querySelectorAll('.carousel-item')
-  const wrapWidth = wrap.offsetWidth
-  const centerX = wrapWidth / 2
+  const centerX = wrapRect.left + wrapRect.width / 2
   
   items.forEach(item => {
     const itemRect = item.getBoundingClientRect()
