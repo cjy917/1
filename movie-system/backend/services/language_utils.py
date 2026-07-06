@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 
 # 规范中文名 -> 数据库可能出现的别名（用于筛选匹配）

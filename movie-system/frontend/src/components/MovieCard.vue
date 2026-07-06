@@ -161,7 +161,12 @@ function onPlaybackFailed() {
 }
 
 function openDetail() {
-  router.push({ name: 'movie-detail', params: { id: props.movie.movie_id } })
+  const mid = Number(props.movie?.movie_id)
+  if (!mid || Number.isNaN(mid)) {
+    console.warn('[MovieCard] 无效movie_id，取消跳转', props.movie)
+    return
+  }
+  router.push({ name: 'movie-detail', params: { id: mid } })
 }
 
 async function onStarChange(value) {

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import re
 from contextlib import contextmanager
@@ -19,6 +21,7 @@ from config import (
     PICTURE_DIRS,
 )
 from services.language_utils import build_language_filter_options, language_match_aliases
+from services.country_utils import country_all_match_aliases
 
 
 def split_pipe(value: str | None) -> list[str]:
@@ -144,6 +147,7 @@ def list_movies(
     genre: str | None = None,
     genres: list[str] | None = None,
     languages: list[str] | None = None,
+    countries: list[str] | None = None,
     year: int | None = None,
     year_from: int | None = None,
     year_to: int | None = None,
@@ -172,6 +176,14 @@ def list_movies(
             language_groups.append(f"({' OR '.join(alias_clauses)})")
             params.extend(f"%{alias}%" for alias in aliases)
         conditions.append(f"({' OR '.join(language_groups)})")
+    selected_countries = [c for c in (countries or []) if c]
+    if selected_countries:
+        # 展开所有canonical国家的别名（韩国=韩国/South Korea/Korea...）并做 LIKE OR
+        all_country_aliases = country_all_match_aliases(selected_countries)
+        if all_country_aliases:
+            alias_clauses = ["countries LIKE %s"] * len(all_country_aliases)
+            conditions.append(f"({' OR '.join(alias_clauses)})")
+            params.extend(f"%{alias}%" for alias in all_country_aliases)
     if year:
         conditions.append("release_year = %s")
         params.append(year)

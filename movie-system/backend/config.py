@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
 
@@ -102,3 +104,69 @@ def load_tmdb_api_key() -> str:
 
 
 TMDB_API_KEY = load_tmdb_api_key()
+
+
+def _load_secret_from_file(key: str) -> str:
+    env_val = os.environ.get(key, "").strip()
+    if env_val:
+        return env_val
+    if SECRETS_FILE.exists():
+        for line in SECRETS_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith(f"{key}="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+AI_ASSISTANT_ENABLED = os.environ.get("AI_ASSISTANT_ENABLED", "true").lower() in ("1", "true", "yes")
+AI_ASSISTANT_API_BASE = os.environ.get("AI_ASSISTANT_API_BASE", "https://api.siliconflow.cn/v1")
+AI_ASSISTANT_API_KEY = _load_secret_from_file("AI_ASSISTANT_API_KEY")
+AI_ASSISTANT_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+AI_ASSISTANT_TIMEOUT = int(os.environ.get("AI_ASSISTANT_TIMEOUT", "90"))
+AI_ASSISTANT_MAX_TOKENS = int(os.environ.get("AI_ASSISTANT_MAX_TOKENS", "1024"))
+AI_ASSISTANT_SYSTEM_PROMPT = os.environ.get(
+    "AI_ASSISTANT_SYSTEM_PROMPT",
+    "【重要：必须严格遵守语言规则】\n"
+    "你是一个中文电影推荐系统的AI智能语音助手，名叫「小影」。\n"
+    "语言规则（最高优先级，任何情况下都要遵守）：\n"
+    "1. 无论用户使用什么语言提问，你的所有回答必须100%使用【简体中文】，禁止出现任何英文、韩文、日文、法文等其他语言的单词或句子。\n"
+    "2. 外国人名、电影名请使用官方通用的中文译名，不要夹杂原文。例如用「流浪地球」不要用「The Wandering Earth」，用「喜剧」不要用「comedy」。\n"
+    "3. 即使用户要求你用其他语言回答，也要礼貌地说明：「抱歉，我只能使用中文回答您的问题。」然后继续用中文。\n"
+    "业务规则：\n"
+    "- 用友好、简洁的中文回答用户关于电影的问题，包括电影推荐、电影信息查询、评分分析等。\n"
+    "- 回答要口语化、短句、适合语音播放，每段不超过200字。\n"
+    "- 如果用户问非电影相关问题，可以礼貌用中文回答。\n"
+    "【国家/地区概念定义 - 必须严格遵守，违反即视为错误回答】\n"
+    "1. 用户说的「欧美电影」「西方电影」「好莱坞电影」= 以下25个国家：美国、英国、法国、德国、意大利、西班牙、加拿大、澳大利亚、爱尔兰、比利时、荷兰、瑞士、瑞典、挪威、丹麦、芬兰、奥地利、葡萄牙、希腊、冰岛、卢森堡、波兰、捷克、匈牙利、新西兰。\n"
+    "   → 绝对不包括：韩国、日本、中国大陆、中国香港、中国台湾、泰国、印度、越南、新加坡、土耳其、以色列、俄罗斯等非欧美文化圈国家。\n"
+    "   → 如果系统返回的候选电影里混入了韩国/日本/亚洲电影，必须剔除并重新选，绝对不要出现在欧美推荐列表中。\n"
+    "2. 「韩国电影」= 仅韩国（别名：南韩/South Korea）。\n"
+    "   → 以下都是韩国电影，绝对不能归入欧美：《寄生虫》《釜山行》《出租车司机》《杀人回忆》《素媛》《熔炉》《辩护人》《82年生的金智英》《燃烧》《恶人传》《极限职业》《南山的部长们》等。\n"
+    "3. 「日本电影」= 仅日本，绝对不能归入欧美或韩国。\n"
+    "4. 「华语电影」/「国产电影」/「内地电影」/「中文电影」= 中国大陆、中国香港、中国台湾、新加坡（即以中文为主流语言的地区），绝对不能混入欧美或日韩电影。\n"
+    "5. 如果用户明确指定了地区（如「2020年的欧美电影」「韩国悬疑片」），推荐结果必须100%符合该地区条件。该地区下若符合条件的电影少于3部，可以补充少量同地区相邻年份或同题材，但绝对不能跨地区乱凑。",
+)
+
+AI_WEB_SEARCH_ENABLED = os.environ.get("AI_WEB_SEARCH_ENABLED", "false").lower() in ("1", "true", "yes")
+AI_WEB_SEARCH_PROVIDER = os.environ.get("AI_WEB_SEARCH_PROVIDER", "tavily")
+AI_WEB_SEARCH_API_KEY = _load_secret_from_file("AI_WEB_SEARCH_API_KEY")
+AI_WEB_SEARCH_MAX_RESULTS = int(os.environ.get("AI_WEB_SEARCH_MAX_RESULTS", "3"))
+
+# AI 信息获取策略：
+# - "internal_only": 仅使用系统内部数据，禁止任何联网搜索
+# - "internal_first": 优先使用系统内部数据，必要时可联网辅助（默认，Windows 生产环境）
+# - "web_allowed": 可优先或同时使用联网数据（仅作特殊调试，不推荐用于生产）
+AI_INFO_SOURCE_STRATEGY = os.environ.get("AI_INFO_SOURCE_STRATEGY", "internal_first")
+
+HTTP_PROXY = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or _load_secret_from_file("HTTP_PROXY") or ""
+HTTPS_PROXY = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or _load_secret_from_file("HTTPS_PROXY") or ""
+SOCKS_PROXY = (
+    os.environ.get("SOCKS_PROXY")
+    or os.environ.get("socks_proxy")
+    or os.environ.get("ALL_PROXY")
+    or os.environ.get("all_proxy")
+    or _load_secret_from_file("SOCKS_PROXY")
+    or ""
+)
+NO_PROXY = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or "127.0.0.1,localhost,192.168.*,10.*"
+

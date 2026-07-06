@@ -1,46 +1,77 @@
-# 忽略所有数据文件（CSV, Parquet）和数据目录
+# ===== 说明：内部私有仓库，数据库和数据文件允许提交 =====
+# 以下规则仅忽略纯运行时缓存、编译产物、虚拟环境、编辑器临时文件
+# secrets.local、*.db、*.log、*.ndjson 等数据文件正常纳入版本控制
+
+# ===== 忽略所有数据文件（CSV, Parquet）和数据目录（可选，按需调整） =====
 cleaned_data/
 films_data/
 ratings/
 *.csv
 *.parquet
 
-# 忽略 posters 和 videos 目录
+# ===== 忽略 posters 和 videos 目录（大体积二进制媒体） =====
 posters/
 videos/
 trailers/
 
-# ===== 新增：忽略 Python 缓存 =====
+# ===== 忽略 Python 缓存 =====
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
+*.so
+*.egg-info/
+.eggs/
 
-# ===== 新增：忽略 Spark 任务产生的垃圾元数据 =====
+# ===== 忽略 Spark 任务产生的垃圾元数据 =====
 *.crc
 _SUCCESS
 ._SUCCESS.crc
 
-# ===== 新增：忽略大体积备份和压缩包 =====
+# ===== 忽略大体积备份和压缩包 =====
 *.sql
 *.tar.gz
 *.zip
 
-# ===== 新增：忽略 IDE 工作区（如果你不想上传 .idea 可以加这行） =====
+# ===== IDE 工作区和编辑器 =====
 .idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
 
-# ===== 跨平台：macOS 系统文件（勿提交） =====
+# ===== 操作系统文件 =====
 .DS_Store
 .AppleDouble
 .LSOverride
 **/.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# ===== 跨平台：各开发者本地 Python 虚拟环境（勿提交） =====
+# ===== 各开发者本地 Python 虚拟环境（跨平台，避免提交） =====
 .venv/
 venv/
 env/
-**/node_modules/
+ENV/
 
-# ===== 本地开发覆盖配置（个人/Mac 专用，勿提交） =====
+# ===== Node 依赖与构建产物（跨平台，避免提交 node_modules 和打包输出） =====
+**/node_modules/
+dist/
+dist-ssr/
+build/
+*.local
+
+# ===== 临时文件和缓存 =====
+.temp/
+.tmp/
+.cache/
+*.tmp
+*.bak
+
+# ===== 跨平台：各开发者本地 .env 和 Mac 专属配置（按需保留）=====
 local/mac/.env
 local/mac/*.local
 local/**/.env

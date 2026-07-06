@@ -3,6 +3,7 @@ import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppHeader from './components/AppHeader.vue'
 import AppFooter from './components/AppFooter.vue'
+import AIVoiceAssistant from './components/AIVoiceAssistant.vue'
 import { useUserStore } from './stores/user'
 import { useThemeStore } from './stores/theme'
 import { useRatingsStore } from './stores/ratings'
@@ -39,5 +40,6 @@ watch(
       <AppFooter />
     </template>
     <router-view v-else />
+    <AIVoiceAssistant />
   </div>
 </template>

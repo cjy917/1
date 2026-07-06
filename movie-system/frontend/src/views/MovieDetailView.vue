@@ -125,7 +125,13 @@ function startPlaybackSlowTimer() {
 const heroOverlay = computed(() => movie.value?.hero_theme?.overlay || '')
 
 async function load() {
-  const id = route.params.id
+  const rawId = route.params.id
+  const id = Number(rawId)
+  if (!id || Number.isNaN(id)) {
+    console.warn('[MovieDetailView] 无效movie_id参数，取消加载:', rawId)
+    pageLoading.value = false
+    return
+  }
   pageLoading.value = true
   trailer.value = null
   playback.value = null
@@ -260,7 +266,8 @@ function formatCommentTime(value) {
 }
 
 async function loadComments() {
-  const id = movie.value?.movie_id || route.params.id
+  const id = Number(movie.value?.movie_id || route.params.id)
+  if (!id || Number.isNaN(id)) return
   const { data } = await commentApi.list(id)
   userComments.value = data.items || []
   const mine = userComments.value.find((item) => item.is_mine)
@@ -328,7 +335,9 @@ async function loadPlayback() {
   moviePlaybackError.value = false
   startPlaybackSlowTimer()
   try {
-    const { data } = await movieApi.play(movie.value?.movie_id || route.params.id, { search_archive: 0 })
+    const id = Number(movie.value?.movie_id || route.params.id)
+    if (!id || Number.isNaN(id)) return
+    const { data } = await movieApi.play(id, { search_archive: 0 })
     playback.value = data
     if (data?.source === 'local' && data?.type === 'mp4') {
       activeTab.value = 'movie'

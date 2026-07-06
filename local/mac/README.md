@@ -141,3 +141,76 @@ npm run dev -- --config ../../local/mac/vite.config.js
 - 提交代码前：`git status` 确认没有 `.venv/`、`.DS_Store`、`local/mac/.env`
 - 日常开发：**关闭 AirPlay + 端口 5000**，与 Windows 零差异
 - 只提交业务代码，**不要**把 Mac 端口改动写进主配置文件
+
+---
+
+## 🔌 AI 智能语音小助手（硅基流动免费 API）
+
+全局悬浮窗组件，支持**文本/语音输入**与 AI 对话。需要配置免费的 API Key 才能启用对话功能（不配置时组件仍显示，会提示未配置 Key）。
+
+### 获取免费 API Key（5 分钟搞定）
+
+1. 访问 https://cloud.siliconflow.cn/ ，用手机号注册
+2. 登录后点击右上角头像 → **「API 密钥」**
+3. 点击 **「创建新密钥」** → 输入名字如 `movie-assistant` → 复制生成的 `sk-xxxxxx` 字符串
+
+### 配置方法
+
+编辑 `movie-system/secrets.local`，取消注释并填入：
+
+```
+AI_ASSISTANT_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+配置后**重启 Flask 后端**即可生效。
+
+### 功能说明
+
+| 功能 | 说明 |
+|------|------|
+| 🎤 语音输入 | 基于浏览器 Web Speech API（推荐 Chrome/Edge/Safari） |
+| 🔊 朗读回复 | 点击每条 AI 回复旁的 🔈 按钮即可语音播放 |
+| 💬 多轮对话 | 自动携带最近 10 轮上下文 |
+| 💾 状态持久化 | 悬浮窗状态、对话历史保存在 localStorage，页面切换不丢失 |
+| 🗑️ 清空记录 | 悬浮窗头部「垃圾桶」按钮 |
+
+> 🌐 选用硅基流动的原因：**国内无需翻墙**、**每日千万级免费 tokens**、API 兼容 OpenAI 格式、对接极简（Python 标准库 urllib 即可，无需第三方依赖）。
+
+### 🚀 macOS + Shadowrocket 代理用户专属（自动支持动态端口）
+
+如果你用 **Shadowrocket (小火箭)** 作为代理客户端（默认端口不固定）：
+
+1. **打开 Shadowrocket → 顶部开关切到「已连接」**（绿灯）
+2. **Shadowrocket 侧边栏 → 设置 → 勾选「设置为系统代理」**
+3. 完成！后端会**自动读取 macOS 系统代理设置**（执行 `scutil --proxy`）获取 Shadowrocket 的动态 HTTP/HTTPS/SOCKS 端口，**你不需要手动写死任何端口**。
+
+#### 验证代理是否自动生效
+
+在 Terminal 里执行：
+```bash
+cd movie-system/backend
+source ../.venv/bin/activate
+python app.py
+# 另开一个浏览器页面，登录后给 AI 小助手发任意消息
+```
+
+回到 Flask 运行的 Terminal 窗口，你会看到类似日志：
+```
+INFO:ai_http_helper:✨ 自动检测到 macOS HTTP 代理: http://127.0.0.1:6xxxxx
+INFO:ai_http_helper:✨ 自动检测到 macOS SOCKS 代理: socks5://127.0.0.1:6xxxxx
+INFO:ai_http_helper:[SiliconFlow] POST https://api.siliconflow.cn/v1/chat/completions 开始请求 代理=启用(https,http) ...
+INFO:ai_http_helper:[SiliconFlow] ... 响应成功 HTTP_200 耗时=1847ms
+```
+
+只要看到 `代理=启用(...)` 就说明 Shadowrocket 的动态端口已经被后端自动识别并成功使用。
+
+#### 如果自动识别失败（极少情况）— 手动固定端口兜底
+
+1. Shadowrocket → 首页 → 点击当前节点右侧的 ⓘ 图标
+2. 找到「**HTTP 代理**」，开启开关并设一个固定端口，比如 **8888**（保持 Shadowrocket 在后台运行）
+3. 编辑 `movie-system/secrets.local`，追加：
+   ```
+   HTTP_PROXY=http://127.0.0.1:8888
+   HTTPS_PROXY=http://127.0.0.1:8888
+   ```
+4. 重启 Flask 后端即可（本方式永远比自动检测更稳定，推荐常驻使用）。

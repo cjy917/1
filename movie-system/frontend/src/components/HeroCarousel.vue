@@ -115,7 +115,12 @@ onBeforeUnmount(() => {
 
 function openDetail() {
   if (current.value) {
-    router.push({ name: 'movie-detail', params: { id: current.value.movie_id } })
+    const mid = Number(current.value.movie_id)
+    if (!mid || Number.isNaN(mid)) {
+      console.warn('[HeroCarousel] 无效movie_id，取消跳转', current.value)
+      return
+    }
+    router.push({ name: 'movie-detail', params: { id: mid } })
   }
 }
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 
 from services.http_client import external_get

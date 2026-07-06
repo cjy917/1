@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """对外 HTTP 请求：优先 secrets.local / 环境变量，其次读取 Windows 系统代理（Clash 等）。"""
 import os
 from pathlib import Path

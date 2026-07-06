@@ -18,6 +18,14 @@ PROJECT_DIR="$REPO_ROOT/movie-system"
 VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
+MOCK_SPARK_VM="$SCRIPT_DIR/spark_vm_mock_server.py"
+
+# Mac 端 Mock 替代 Ubuntu VM：
+#   Windows 组员继续用真 VM http://192.168.111.128:5001
+#   Mac 端启本地 python 网关 127.0.0.1:5001，接口完全兼容
+export SPARK_VM_URL="${SPARK_VM_URL:-http://127.0.0.1:5001}"
+export SPARK_VM_HOST="${SPARK_VM_HOST:-127.0.0.1}"
+export SPARK_VM_PORT="${SPARK_VM_PORT:-5001}"
 
 log() { printf "\033[1;36m[start-mac]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[warn]\033[0m %s\n" "$*" >&2; }
@@ -73,9 +81,9 @@ if [ ! -f "$FRONTEND_DIR/node_modules/.bin/vite" ]; then
     exit 1
 fi
 
-# ---------- 2. 清理旧进程 ----------
-log "清理旧进程（端口 5000 / 5173）..."
-for PORT in 5000 5173; do
+# ---------- 2. 清理旧进程（含 Mock Spark VM :5001） ----------
+log "清理旧进程（端口 5000 / 5001 / 5173）..."
+for PORT in 5000 5001 5173; do
     PIDS=$(lsof -ti:$PORT 2>/dev/null || true)
     if [ -n "$PIDS" ]; then
         log "  端口 $PORT 占用 -> kill $PIDS"
@@ -87,9 +95,18 @@ for PORT in 5000 5173; do
     fi
 done
 
-# ---------- 3. 启动后端（新 Terminal 窗口） ----------
-BACKEND_CMD="cd '$BACKEND_DIR' && echo '=== Flask Backend :5000 ===' && '$VENV_PYTHON' app.py"
-log "[1/2] 启动后端 -> Terminal 窗口（http://127.0.0.1:5000）"
+# ---------- 3. 启动 Mock Spark VM（替代 Ubuntu VM，仅 Mac 使用） ----------
+log "[0/3] 启动 Mock Spark VM -> Terminal 窗口（$SPARK_VM_URL）"
+SPARK_CMD="export SPARK_VM_URL='$SPARK_VM_URL' SPARK_VM_HOST='$SPARK_VM_HOST' SPARK_VM_PORT='$SPARK_VM_PORT'; '$VENV_PYTHON' '$MOCK_SPARK_VM'"
+osascript -e "tell application \"Terminal\"" \
+          -e "    do script \"$SPARK_CMD\"" \
+          -e "    set custom title of front window to \"Mac Mock Spark VM :$SPARK_VM_PORT\"" \
+          -e "end tell" >/dev/null
+sleep 2
+
+# ---------- 4. 启动后端（新 Terminal 窗口） ----------
+BACKEND_CMD="export SPARK_VM_URL='$SPARK_VM_URL' SPARK_VM_HOST='$SPARK_VM_HOST' SPARK_VM_PORT='$SPARK_VM_PORT'; cd '$BACKEND_DIR' && echo '=== Flask Backend :5000 ===' && '$VENV_PYTHON' app.py"
+log "[1/3] 启动后端 -> Terminal 窗口（http://127.0.0.1:5000）"
 osascript -e "tell application \"Terminal\"" \
           -e "    do script \"$BACKEND_CMD\"" \
           -e "    set custom title of front window to \"SparkMovie Backend :5000\"" \
@@ -98,20 +115,22 @@ osascript -e "tell application \"Terminal\"" \
 # 等后端初始化
 sleep 4
 
-# ---------- 4. 启动前端（新 Terminal 窗口） ----------
+# ---------- 5. 启动前端（新 Terminal 窗口） ----------
 FRONTEND_CMD="cd '$FRONTEND_DIR' && echo '=== Vite Frontend :5173 ===' && npm run dev"
-log "[2/2] 启动前端 -> Terminal 窗口（http://localhost:5173）"
+log "[2/3] 启动前端 -> Terminal 窗口（http://localhost:5173）"
 osascript -e "tell application \"Terminal\"" \
           -e "    do script \"$FRONTEND_CMD\"" \
           -e "    set custom title of front window to \"SparkMovie Frontend :5173\"" \
           -e "end tell" >/dev/null
 
-# ---------- 5. 汇总 ----------
+# ---------- 6. 汇总 ----------
 sleep 1
 echo
 echo "================================================================"
 echo "  ✅  Mac 端已启动"
+echo "  🖥️   Mock Spark VM:  $SPARK_VM_URL/health （替代 Ubuntu VM）"
 echo "  🌐  前端（Vue）:  http://localhost:5173"
 echo "  🔌  后端 API :    http://127.0.0.1:5000/api/health"
+echo "  🔄  刷新推荐 :    页面点击「刷新推荐」→ 触发 Mock VM 纯 Python 重算"
 echo "  🛑  停止服务 :    ./local/mac/stop-mac.sh"
 echo "================================================================"

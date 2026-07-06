@@ -53,18 +53,6 @@ export async function tryLocalTrailerFallback(movieId) {
     cache.set(numericId, data)
     return data
   }
-  const url = `/api/trailers/${numericId}`
-  try {
-    const res = await fetch(url, { method: 'HEAD' })
-    if (res.ok) {
-      localTrailerIds.add(numericId)
-      const data = localTrailerSource(numericId)
-      cache.set(numericId, data)
-      return data
-    }
-  } catch {
-    // offline or backend unavailable
-  }
   return null
 }
 

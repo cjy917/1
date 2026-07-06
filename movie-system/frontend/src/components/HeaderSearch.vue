@@ -70,7 +70,12 @@ function submitSearch(term) {
 
 function pickMovie(item) {
   close()
-  router.push({ name: 'movie-detail', params: { id: item.movie_id } })
+  const mid = Number(item?.movie_id)
+  if (!mid || Number.isNaN(mid)) {
+    console.warn('[HeaderSearch] 无效movie_id，取消跳转', item)
+    return
+  }
+  router.push({ name: 'movie-detail', params: { id: mid } })
 }
 
 function onKeydown(event) {

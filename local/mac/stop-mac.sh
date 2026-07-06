@@ -12,7 +12,7 @@ set -e
 log() { printf "\033[1;35m[stop-mac]\033[0m %s\n" "$*"; }
 
 STOPPED=0
-for PORT in 5000 5173; do
+for PORT in 5000 5001 5173; do
     PIDS=$(lsof -ti:$PORT 2>/dev/null || true)
     if [ -n "$PIDS" ]; then
         NAME=$(lsof -i:$PORT -sTCP:LISTEN -Fcn 2>/dev/null | awk '/^n/ {print substr($0,2); exit}' || echo "unknown")

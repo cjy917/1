@@ -2,40 +2,42 @@
 chcp 65001 >nul
 title 导入 MySQL 电影数据库
 
-set SQL_FILE=d:\作业\大三下\小学期-大数据编程实践\FYWZ\movies_backup.sql
+set SCRIPT_DIR=%~dp0
+set SQL_FILE=%SCRIPT_DIR%movies_backup.sql
 set MYSQL_USER=root
 set MYSQL_PWD=123456
 set MYSQL_DB=movies_db
 
-REM 自动查找 mysql.exe（优先使用本机已安装的 MySQL 5.7）
+REM 自动查找 mysql.exe（优先查找 PATH 中的命令，其次是标准安装路径）
 set MYSQL_BIN=
-if exist "D:\zuoye\dasanxia\mysql-5.7.44-winx64\bin\mysql.exe" set MYSQL_BIN=D:\zuoye\dasanxia\mysql-5.7.44-winx64\bin
-if "%MYSQL_BIN%"=="" if exist "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" set MYSQL_BIN=C:\Program Files\MySQL\MySQL Server 8.0\bin
-if "%MYSQL_BIN%"=="" if exist "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" set MYSQL_BIN=C:\Program Files\MySQL\MySQL Server 8.4\bin
-if "%MYSQL_BIN%"=="" (
-    where mysql >nul 2>&1
-    if not errorlevel 1 set MYSQL_BIN=
-)
-
-if "%MYSQL_BIN%"=="" (
-    where mysql >nul 2>&1
-    if errorlevel 1 (
-        echo 找不到 mysql 命令。
-        echo 请修改本脚本顶部 MYSQL_BIN 变量，指向 mysql.exe 所在 bin 目录
-        echo 例如: set MYSQL_BIN=D:\zuoye\dasanxia\mysql-5.7.44-winx64\bin
-        pause
-        exit /b 1
-    )
+where mysql >nul 2>&1
+if not errorlevel 1 (
     set MYSQL_CMD=mysql
-) else (
-    set MYSQL_CMD="%MYSQL_BIN%\mysql.exe"
-    echo 使用 MySQL: %MYSQL_BIN%
+    goto mysql_found
 )
 
+REM 尝试常见的 MySQL 标准安装路径
+if exist "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" set MYSQL_BIN=C:\Program Files\MySQL\MySQL Server 8.4\bin
+if "%MYSQL_BIN%"=="" if exist "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" set MYSQL_BIN=C:\Program Files\MySQL\MySQL Server 8.0\bin
+if "%MYSQL_BIN%"=="" if exist "C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe" set MYSQL_BIN=C:\Program Files\MySQL\MySQL Server 5.7\bin
+if "%MYSQL_BIN%"=="" if exist "C:\Program Files (x86)\MySQL\MySQL Server 8.0\bin\mysql.exe" set MYSQL_BIN=C:\Program Files (x86)\MySQL\MySQL Server 8.0\bin
+
+if "%MYSQL_BIN%"=="" (
+    echo 找不到 mysql 命令。
+    echo 请将 MySQL 的 bin 目录加入系统 PATH，或修改本脚本顶部的 MYSQL_BIN 变量。
+    echo 例如: set MYSQL_BIN=C:\mysql\bin
+    pause
+    exit /b 1
+)
+set MYSQL_CMD="%MYSQL_BIN%\mysql.exe"
+echo 使用 MySQL: %MYSQL_BIN%
+
+:mysql_found
 echo ===== 检查 movies_backup.sql =====
 if not exist "%SQL_FILE%" (
-    echo 找不到: %SQL_FILE%
-    echo 请确认 FYWZ 目录下有 movies_backup.sql
+    echo 找不到数据库备份文件: %SQL_FILE%
+    echo 请将 movies_backup.sql 放在与本脚本相同的目录下:
+    echo   %SCRIPT_DIR%
     pause
     exit /b 1
 )

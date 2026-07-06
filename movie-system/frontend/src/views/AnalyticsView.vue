@@ -123,6 +123,16 @@
           </div>
         </section>
 
+        <section class="section section-leaderboard">
+          <div class="section-header">
+            <h2 class="headline">🏆 评分排行榜</h2>
+            <p class="copy-sm">综合评分与评分人数的热门电影排名</p>
+          </div>
+          <div class="bento-card leaderboard-card">
+            <RatingLeaderboard />
+          </div>
+        </section>
+
         <section class="section">
           <div class="section-header">
             <h2 class="headline">💬 社交热度分析</h2>
@@ -199,6 +209,7 @@ import ScatterChart from '../analytics/components/charts/ScatterChart.vue'
 import TagCloudSphere from '../analytics/components/charts/TagCloudSphere.vue'
 import MovieShowcase from '../analytics/components/Dashboard/MovieShowcase.vue'
 import AppleMovieShowcase from '../analytics/components/Dashboard/AppleMovieShowcase.vue'
+import RatingLeaderboard from '../components/RatingLeaderboard.vue'
 import '../analytics/assets/styles/variables.css'
 
 const router = useRouter()
@@ -289,7 +300,12 @@ function handleRetry() {
 
 function handleMovieClick(movie) {
   if (movie?.movie_id) {
-    router.push({ name: 'movie-detail', params: { id: movie.movie_id } })
+    const mid = Number(movie.movie_id)
+    if (!mid || Number.isNaN(mid)) {
+      console.warn('[AnalyticsView] 无效movie_id，取消跳转', movie)
+      return
+    }
+    router.push({ name: 'movie-detail', params: { id: mid } })
   }
 }
 
@@ -458,6 +474,28 @@ onMounted(() => {
 .card-header h3 {
   margin: 0;
   font-size: 1.1rem;
+}
+
+.section-leaderboard {
+  margin-bottom: calc(var(--spacing) * 13);
+}
+
+.leaderboard-card {
+  padding: calc(var(--spacing) * 6) calc(var(--spacing) * 7);
+}
+
+.leaderboard-card :deep(.rating-leaderboard .mb-4) {
+  margin-bottom: calc(var(--spacing) * 4);
+}
+
+.leaderboard-card :deep(.rating-leaderboard .text-muted) {
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 832px) {
+  .leaderboard-card {
+    padding: calc(var(--spacing) * 5);
+  }
 }
 
 @media (max-width: 1024px) {
