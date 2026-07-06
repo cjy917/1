@@ -21,7 +21,6 @@ from config import (
     PICTURE_DIRS,
 )
 from services.language_utils import build_language_filter_options, language_match_aliases
-from services.country_utils import country_all_match_aliases
 
 
 def split_pipe(value: str | None) -> list[str]:
@@ -147,7 +146,6 @@ def list_movies(
     genre: str | None = None,
     genres: list[str] | None = None,
     languages: list[str] | None = None,
-    countries: list[str] | None = None,
     year: int | None = None,
     year_from: int | None = None,
     year_to: int | None = None,
@@ -155,6 +153,8 @@ def list_movies(
     max_rating: float | None = None,
     min_votes: int | None = None,
     keyword: str | None = None,
+    director: str | None = None,
+    actor: str | None = None,
     sort: str = "rating_desc",
 ) -> dict[str, Any]:
     conditions: list[str] = ["1=1"]
@@ -176,14 +176,6 @@ def list_movies(
             language_groups.append(f"({' OR '.join(alias_clauses)})")
             params.extend(f"%{alias}%" for alias in aliases)
         conditions.append(f"({' OR '.join(language_groups)})")
-    selected_countries = [c for c in (countries or []) if c]
-    if selected_countries:
-        # 展开所有canonical国家的别名（韩国=韩国/South Korea/Korea...）并做 LIKE OR
-        all_country_aliases = country_all_match_aliases(selected_countries)
-        if all_country_aliases:
-            alias_clauses = ["countries LIKE %s"] * len(all_country_aliases)
-            conditions.append(f"({' OR '.join(alias_clauses)})")
-            params.extend(f"%{alias}%" for alias in all_country_aliases)
     if year:
         conditions.append("release_year = %s")
         params.append(year)
@@ -206,6 +198,12 @@ def list_movies(
         conditions.append("(title LIKE %s OR actors LIKE %s OR directors LIKE %s OR aliases LIKE %s)")
         like = f"%{keyword}%"
         params.extend([like, like, like, like])
+    if director:
+        conditions.append("directors LIKE %s")
+        params.append(f"%{director}%")
+    if actor:
+        conditions.append("actors LIKE %s")
+        params.append(f"%{actor}%")
 
     order_map = {
         "rating_desc": "rating DESC, rating_count DESC",
@@ -252,7 +250,7 @@ def get_movie_by_id(movie_id: int) -> dict[str, Any] | None:
     return _row_to_movie(row) if row else None
 
 
-def search_suggest(keyword: str, limit: int = 8) -> list[dict[str, Any]]:
+def search_suggest(keyword: str, limit: int = 100) -> list[dict[str, Any]]:
     if not keyword.strip():
         return []
     like = f"%{keyword.strip()}%"
@@ -280,6 +278,60 @@ def search_suggest(keyword: str, limit: int = 8) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def get_movies_by_award(award_type: str, page: int = 1, page_size: int = 20, year: int | None = None) -> dict[str, Any]:
+    award_keywords = {
+        'oscars': ['奥斯卡', 'Oscar'],
+        'golden-globe': ['金球奖', 'Golden Globe'],
+        'golden-lion': ['金狮奖', 'Golden Lion'],
+        'golden-bear': ['金熊奖', 'Golden Bear'],
+        'golden-palm': ['金棕榈奖', '金棕榈', 'Golden Palm'],
+    }
+
+    keywords = award_keywords.get(award_type, [])
+    if not keywords:
+        return {'items': [], 'total': 0, 'pages': 0}
+
+    like_patterns = [f"%{kw}%" for kw in keywords]
+    award_clauses = ["awards LIKE %s"] * len(like_patterns)
+    award_sql = " OR ".join(award_clauses)
+    
+    if year:
+        where_sql = f"({award_sql}) AND release_year = %s"
+        like_patterns.append(year)
+    else:
+        where_sql = award_sql
+
+    offset = (page - 1) * page_size
+
+    with get_mysql() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT COUNT(*) as total FROM movies
+                WHERE {where_sql}
+                """,
+                tuple(like_patterns),
+            )
+            total = cursor.fetchone()['total']
+
+            cursor.execute(
+                f"""
+                SELECT * FROM movies
+                WHERE {where_sql}
+                ORDER BY rating DESC, rating_count DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(like_patterns) + (page_size, offset),
+            )
+            rows = cursor.fetchall()
+
+    return {
+        'items': [_row_to_movie(row) for row in rows],
+        'total': total,
+        'pages': (total + page_size - 1) // page_size,
+    }
 
 
 def _pick_banner_movies() -> list[dict[str, Any]]:
@@ -366,7 +418,7 @@ def get_home_sections() -> dict[str, list[dict[str, Any]]]:
     with get_mysql() as conn:
         with conn.cursor() as cursor:
             for key, (where, order, limit) in {
-                "popular": ("rating_count >= 500", "rating_count DESC", 20),
+                "popular": ("rating_count >= 500", "rating_count DESC", 40),
                 "top_rated": ("rating >= 7.5 AND rating_count >= 100", "rating DESC", 20),
             }.items():
                 cursor.execute(
@@ -391,6 +443,13 @@ def get_home_sections() -> dict[str, list[dict[str, Any]]]:
     return sections
 
 
+GENRE_WHITELIST = {
+    "剧情", "喜剧", "惊悚", "动作", "恐怖", "爱情", "犯罪", "冒险",
+    "科幻", "悬疑", "奇幻", "动画", "家庭", "历史", "音乐", "战争",
+    "纪录", "电视电影", "西部", "传记", "同性", "歌舞", "古装",
+    "儿童", "运动", "灾难", "脱口秀", "真人秀", "武侠", "情色", "戏曲",
+}
+
 def get_filter_options() -> dict[str, list[Any]]:
     with get_mysql() as conn:
         with conn.cursor() as cursor:
@@ -402,13 +461,14 @@ def get_filter_options() -> dict[str, list[Any]]:
             genre_counter: dict[str, int] = {}
             for row in cursor.fetchall():
                 for genre in split_pipe(row["genres"]):
-                    genre_counter[genre] = genre_counter.get(genre, 0) + 1
+                    if genre in GENRE_WHITELIST:
+                        genre_counter[genre] = genre_counter.get(genre, 0) + 1
             cursor.execute("SELECT languages FROM movies WHERE languages IS NOT NULL AND languages != ''")
             language_rows = [row["languages"] for row in cursor.fetchall()]
     genres = sorted(genre_counter.items(), key=lambda x: (-x[1], x[0]))
     return {
         "years": years,
-        "genres": [name for name, _ in genres[:40]],
+        "genres": [name for name, _ in genres],
         "languages": build_language_filter_options(language_rows),
     }
 

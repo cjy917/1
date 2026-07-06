@@ -27,6 +27,7 @@ STRATEGY_LABELS = {
 }
 
 SECTION_LIMIT = 20
+# 至少评满 3 部才进入个性化推荐流程
 RATING_MIN_FOR_PERSONAL = 3
 
 
@@ -291,10 +292,14 @@ def _spark_hybrid_recommendations(
     *,
     refreshed: bool = False,
 ) -> dict[str, Any]:
-    """从本地 spark/output/*.json 读取该用户推荐（由 VM 批处理产出）。"""
+    """
+    读取 VM Spark 产出的三份 JSON，按权重融合后返回推荐页各分区数据。
+    ALS 0.7 + GraphX 0.2 + Content 0.1；已评分电影会从结果中过滤。
+    """
     spark_uid = user_id + SPARK_USER_OFFSET
     rated_movie_ids = {str(r.movie_id) for r in UserRating.query.filter_by(user_id=user_id).all()}
 
+    # 本地尚无 Spark 输出 → 前端显示「待刷新推荐」+ 热门兜底
     if not _spark_has_outputs():
         return _build_sections_payload(
             hybrid_items=[],
@@ -313,6 +318,7 @@ def _spark_hybrid_recommendations(
     graphx_norm = _spark_score_map("recommendations_graphx.json", spark_uid)
     content_norm = _spark_score_map("recommendations_content.json", spark_uid)
 
+    # 有输出文件但当前用户尚无推荐条目 → 仍需用户点「刷新推荐」
     if not als_norm and not graphx_norm and not content_norm:
         return _build_sections_payload(
             hybrid_items=[],
@@ -337,6 +343,7 @@ def _spark_hybrid_recommendations(
         fused[mid]["score"] += score
         fused[mid]["algos"].append(algo)
 
+    # 三算法加权融合 → hybrid_items（「为你综合推荐」分区）
     for mid, s in als_norm.items():
         _add(mid, s * WEIGHT_ALS, "als")
     for mid, s in graphx_norm.items():
@@ -386,24 +393,41 @@ def _spark_hybrid_recommendations(
 
 
 def refresh_spark_recommendations(user_id: int) -> dict[str, Any]:
-    """导出评分 → 同步 VM → 触发 Spark 批处理 → 拉回 JSON → 返回推荐。"""
+    """
+    用户点击「刷新推荐」的完整流程：
+    1. 导出历史/网站评分与片库
+    2. 同步到 Ubuntu VM，跑增量 Spark（失败则回退全量）
+    3. 拉回 recommendations_*.json 并组装返回
+    """
     rating_count = UserRating.query.filter_by(user_id=user_id).count()
     if rating_count < RATING_MIN_FOR_PERSONAL:
         return hybrid_recommendations(user_id)
 
     from services.catalog_service import export_spark_movies_catalog_file
-    from services.ratings_service import export_spark_ratings_file
+    from services.ratings_service import (
+        export_spark_history_ratings_file,
+        export_spark_ratings_file,
+        export_spark_web_ratings_file,
+    )
+    from services.spark_vm_client import SparkVMError, run_spark_incremental_on_vm, run_spark_pipeline_on_vm
 
-    export_spark_ratings_file()
+    export_spark_history_ratings_file()
+    export_spark_web_ratings_file()
     export_spark_movies_catalog_file()
 
-    from services.spark_vm_client import run_spark_pipeline_on_vm
-
-    run_spark_pipeline_on_vm()
+    try:
+        run_spark_incremental_on_vm(user_id)
+    except SparkVMError as exc:
+        print(f"incremental spark failed, fallback to full pipeline: {exc}")
+        export_spark_ratings_file()
+        run_spark_pipeline_on_vm()
     return _spark_hybrid_recommendations(user_id, rating_count, refreshed=True)
 
 
 def hybrid_recommendations(user_id: int, limit: int = RECOMMEND_TOP_N) -> dict[str, Any]:
+    """
+    推荐页主入口：评分不足 3 部走冷启动（热门），否则读 Spark 混合推荐结果。
+    """
     rating_count = UserRating.query.filter_by(user_id=user_id).count()
     popular_items = get_home_popular_items(limit=SECTION_LIMIT)
 

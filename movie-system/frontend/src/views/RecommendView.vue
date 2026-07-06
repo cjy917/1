@@ -1,4 +1,9 @@
 <script setup>
+/**
+ * 智能推荐页（/recommend）
+ * 状态机：未登录 → 评分不足 → 待刷新 → 已有个性化推荐
+ * 刷新时 POST /api/recommend/refresh，触发 VM Spark 增量计算
+ */
 import { computed, onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -11,6 +16,7 @@ const RATING_GOAL = 3
 const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(false)
+// 后端返回的 strategy：cold_start | spark_pending | spark_hybrid
 const strategy = ref('')
 const strategyLabel = ref('')
 const ratingCount = ref(0)
@@ -22,15 +28,13 @@ const contentItems = ref([])
 const popularItems = ref([])
 
 const STRATEGY_MODE = {
-  spark_hybrid: 'Spark混合推荐',
-  spark_pending: '待 Spark 刷新',
-  cold_start: '冷启动 · 仅热门推荐',
+  spark_hybrid: '个性化推荐',
+  spark_pending: '待刷新推荐',
+  cold_start: '热门推荐',
 }
 
 const refreshing = ref(false)
-const isSparkMode = ref(false)
 const isSparkPending = ref(false)
-const personalizedReady = ref(false)
 
 const statusModeText = computed(() => {
   if (strategy.value && STRATEGY_MODE[strategy.value]) {
@@ -45,25 +49,17 @@ const statusRatingText = computed(() => {
   return `已评分 ${ratingCount.value} 部`
 })
 
-const statusComputeText = computed(() => {
-  if (refreshing.value) return 'VM Spark 批处理计算中…'
-  if (isSparkMode.value) return 'Spark批处理（Ubuntu VM）'
-  if (strategy.value === 'cold_start') return '热门兜底（与首页一致）'
-  if (isSparkPending.value) return '等待刷新触发 Spark'
-  return '—'
-})
-
 const ratingProgress = computed(() => Math.min(ratingCount.value, RATING_GOAL))
 const ratingProgressPercent = computed(() => Math.round((ratingProgress.value / RATING_GOAL) * 100))
 
-const isColdStartStrategy = computed(() => strategy.value === 'cold_start')
-
 const showGuestGuide = computed(() => !userStore.isLoggedIn && !loading.value)
 
+/** 已登录但评分 < 3：显示进度条引导去电影库评分 */
 const showRatingGuide = computed(
   () => userStore.isLoggedIn && ratingCount.value < RATING_GOAL && !loading.value,
 )
 
+/** 评满 3 部但尚未跑 Spark：提示点「刷新推荐」 */
 const showSparkPendingBanner = computed(
   () =>
     userStore.isLoggedIn &&
@@ -73,22 +69,12 @@ const showSparkPendingBanner = computed(
     !loading.value,
 )
 
-const showOnlineBanner = computed(
-  () =>
-    userStore.isLoggedIn &&
-    ratingCount.value >= RATING_GOAL &&
-    isSparkMode.value &&
-    personalizedReady.value &&
-    !refreshing.value &&
-    !loading.value,
-)
-
 const ratingGuideMessage = computed(() => {
   if (ratingCount.value <= 0) {
-    return '你还没有评分记录，先给3部电影打分，系统将为你生成个性化推荐'
+    return '给 3 部电影打分后，系统就能更懂你的口味'
   }
   const remain = RATING_GOAL - ratingCount.value
-  return `已评分 ${ratingCount.value} 部，再评 ${remain} 部即可解锁 Spark 个性化推荐`
+  return `已完成 ${ratingCount.value} 部，再评 ${remain} 部即可解锁专属推荐`
 })
 
 function goRateMovies() {
@@ -99,36 +85,37 @@ function goLogin() {
   router.push({ name: 'login', query: { redirect: '/recommend' } })
 }
 
+/** 根据后端各分区数据 + 用户状态，决定展示哪些推荐区块 */
 const sections = computed(() => {
   const rows = [
     {
       key: 'hybrid',
       title: '为你综合推荐',
-      subtitle: 'Spark ALS 0.7 + GraphX 0.2 + TF-IDF 0.1',
+      subtitle: '融合协同过滤、社交图谱与内容相似度',
       movies: hybridItems.value,
     },
     {
       key: 'als',
       title: '猜你喜欢',
-      subtitle: 'Spark MLlib ALS（含最新同步评分）',
+      subtitle: '根据你的评分偏好智能匹配',
       movies: alsItems.value,
     },
     {
       key: 'graphx',
       title: '相似用户也在看',
-      subtitle: 'Spark GraphX 图协同推荐',
+      subtitle: '口味相近的用户还在看这些',
       movies: graphxItems.value,
     },
     {
       key: 'content',
       title: '同类推荐',
-      subtitle: 'Spark TF-IDF 内容相似度',
+      subtitle: '风格、类型与你喜欢的电影相近',
       movies: contentItems.value,
     },
     {
       key: 'popular',
       title: '热门推荐',
-      subtitle: '按评价人数排序',
+      subtitle: '高口碑、高人气的精选影片',
       movies: popularItems.value,
     },
   ]
@@ -152,19 +139,19 @@ function applyPayload(data) {
   strategy.value = data.strategy || ''
   strategyLabel.value = data.strategy_label || '个性化推荐'
   ratingCount.value = data.rating_count ?? 0
-  isSparkMode.value = data.source === 'spark' && data.strategy === 'spark_hybrid'
   isSparkPending.value = data.strategy === 'spark_pending'
-  personalizedReady.value = !!data.personalized_ready
 }
 
 async function load() {
   loading.value = true
   try {
     if (!userStore.isLoggedIn) {
+      // 访客：GET /api/recommend/guest → 仅热门电影
       const { data } = await recommendApi.guest()
       applyPayload(data)
       return
     }
+    // 已登录：GET /api/recommend/personal
     const { data } = await recommendApi.personal()
     applyPayload(data)
   } finally {
@@ -179,11 +166,12 @@ async function refresh() {
   }
   refreshing.value = true
   try {
+    // POST /api/recommend/refresh → 后端同步评分、跑 Spark、拉回 JSON
     const { data } = await recommendApi.refresh()
     applyPayload(data)
-    ElMessage.success('Spark 批处理完成，推荐已更新')
+    ElMessage.success('推荐已更新')
   } catch (err) {
-    const msg = err.response?.data?.error || err.message || 'Spark 刷新失败'
+    const msg = err.response?.data?.error || err.message || '刷新失败，请稍后重试'
     ElMessage.error(msg)
   } finally {
     refreshing.value = false
@@ -195,48 +183,51 @@ onActivated(load)
 </script>
 
 <template>
-  <div class="mx-auto max-w-[1400px] px-4 py-8 lg:px-8">
-    <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 class="text-3xl font-bold">智能推荐</h1>
-        <p class="mt-2 text-sm text-muted">
-          评满3部后由Ubuntu VM上的Spark批处理生成推荐；修改评分后请点击「刷新推荐」
-        </p>
-      </div>
-      <div class="flex flex-wrap gap-3">
+  <div class="recommend-page mx-auto max-w-[1400px] px-4 py-8 lg:px-8">
+    <section class="recommend-hero mb-8">
+      <div class="recommend-hero__toolbar">
+        <div class="recommend-hero__stat">
+          <span class="recommend-hero__stat-label">当前模式</span>
+          <span class="recommend-hero__stat-value">{{ statusModeText }}</span>
+        </div>
+        <div class="recommend-hero__stat">
+          <span class="recommend-hero__stat-label">我的评分</span>
+          <span class="recommend-hero__stat-value">{{ statusRatingText }}</span>
+        </div>
         <button
           v-if="userStore.isLoggedIn"
-          class="rounded-md bg-[#01B4E4] px-5 py-2 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-60"
+          type="button"
+          class="recommend-refresh-btn"
           :disabled="loading || refreshing"
           @click="refresh"
         >
-          {{ refreshing ? 'Spark 计算中…' : '刷新推荐' }}
+          {{ refreshing ? '生成中…' : '刷新推荐' }}
         </button>
       </div>
-    </div>
+    </section>
 
     <!-- 未登录引导 -->
-    <div v-if="showGuestGuide" class="onboard-banner onboard-banner--guest mb-6">
-      <div class="onboard-banner__icon">🎬</div>
+    <div v-if="showGuestGuide" class="onboard-banner onboard-banner--guest mb-8">
+      <div class="onboard-banner__badge">1</div>
       <div class="onboard-banner__body">
-        <h3 class="onboard-banner__title">开启个性化推荐</h3>
+        <h3 class="onboard-banner__title">开启您的专属推荐~</h3>
         <p class="onboard-banner__text">
-          登录并给3部电影打分，然后点击「刷新推荐」在VM上运行Spark生成个性化结果。
+          登录并为3部电影打分，生成您的个性化片单~
         </p>
         <div class="onboard-banner__actions">
           <button type="button" class="onboard-btn onboard-btn--primary" @click="goLogin">
-            去登录
+            登录开始
           </button>
           <button type="button" class="onboard-btn onboard-btn--ghost" @click="goRateMovies">
-            先浏览电影
+            先逛逛电影库
           </button>
         </div>
       </div>
     </div>
 
     <!-- 新用户评分引导 -->
-    <div v-else-if="showRatingGuide" class="onboard-banner mb-6">
-      <div class="onboard-banner__icon">⭐</div>
+    <div v-else-if="showRatingGuide" class="onboard-banner mb-8">
+      <div class="onboard-banner__badge">2</div>
       <div class="onboard-banner__body">
         <h3 class="onboard-banner__title">还差几步，推荐会更懂你</h3>
         <p class="onboard-banner__text">{{ ratingGuideMessage }}</p>
@@ -253,98 +244,51 @@ onActivated(load)
           <button type="button" class="onboard-btn onboard-btn--primary" @click="goRateMovies">
             去评分
           </button>
-          <button
-            v-if="ratingCount > 0"
-            type="button"
-            class="onboard-btn onboard-btn--ghost"
-            :disabled="loading"
-            @click="refresh"
-          >
-            刷新推荐
-          </button>
         </div>
       </div>
     </div>
 
-    <!-- Spark 待刷新 -->
-    <div v-else-if="showSparkPendingBanner" class="onboard-banner mb-6">
-      <div class="onboard-banner__icon">⚡</div>
+    <!-- 待刷新 -->
+    <div v-else-if="showSparkPendingBanner" class="onboard-banner mb-8">
+      <div class="onboard-banner__badge">3</div>
       <div class="onboard-banner__body">
-        <h3 class="onboard-banner__title">已评满 {{ RATING_GOAL }} 部，请刷新 Spark 推荐</h3>
+        <h3 class="onboard-banner__title">评分已够，一键生成您的专属推荐~</h3>
         <p class="onboard-banner__text">
-          推荐由 Ubuntu 虚拟机上的 Spark（ALS / GraphX / TF-IDF）批处理生成。你有新评分后需点击「刷新推荐」才会重算；不刷新则保持上一次结果。
+          你已评满 {{ RATING_GOAL }} 部，点击刷新即可获取最新推荐哦~
         </p>
         <div class="onboard-banner__actions">
           <button type="button" class="onboard-btn onboard-btn--primary" :disabled="refreshing" @click="refresh">
-            {{ refreshing ? 'Spark 计算中…' : '刷新推荐（触发 VM Spark）' }}
+            {{ refreshing ? '生成中…' : '立即刷新推荐' }}
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Spark 推荐已就绪 -->
-    <div v-else-if="showOnlineBanner" class="onboard-banner onboard-banner--success mb-6">
-      <div class="onboard-banner__icon">✨</div>
-      <div class="onboard-banner__body">
-        <h3 class="onboard-banner__title">Spark 个性化推荐已就绪</h3>
-        <p class="onboard-banner__text">
-          当前展示的是 VM Spark 批处理结果。修改评分后请点击「刷新推荐」同步数据并重算（约 1～3 分钟）。
-        </p>
-        <div class="onboard-banner__actions">
-          <button type="button" class="onboard-btn onboard-btn--primary" :disabled="refreshing" @click="refresh">
-            {{ refreshing ? 'Spark 计算中…' : '刷新推荐' }}
-          </button>
-        </div>
-      </div>
+    <div v-if="refreshing" class="recommend-loading">
+      <div class="recommend-loading__spinner" />
+      <p>正在为你生成推荐，大约需要 15～60 秒</p>
     </div>
-
-    <div v-if="!loading && hasAnyItems" class="status-card mb-8">
-      <div class="status-card__row">
-        <span class="status-card__label">当前模式</span>
-        <span class="status-card__value">{{ statusModeText }}</span>
-      </div>
-      <span class="status-card__dot">·</span>
-      <div class="status-card__row">
-        <span class="status-card__label">评分记录</span>
-        <span class="status-card__value">{{ statusRatingText }}</span>
-      </div>
-      <span class="status-card__dot">·</span>
-      <div class="status-card__row">
-        <span class="status-card__label">计算方式</span>
-        <span class="status-card__value" :class="{ 'status-card__value--ok': isSparkMode }">
-          {{ statusComputeText }}
-        </span>
-      </div>
-      <div class="status-card__tags">
-        <span class="algo-tag algo-tag--als">ALS</span>
-        <span class="algo-tag algo-tag--graphx">GraphX</span>
-        <span class="algo-tag algo-tag--content">Content</span>
-      </div>
+    <div v-else-if="loading" class="recommend-loading">
+      <p>加载推荐中…</p>
     </div>
-
-    <div v-if="refreshing" class="py-16 text-center text-muted">
-      Spark批处理计算中，约需1～3分钟，请稍候…
-    </div>
-    <div v-else-if="loading" class="py-16 text-center text-muted">加载推荐中...</div>
-    <div v-else-if="!hasAnyItems" class="py-16 text-center text-muted">
-      暂无推荐。评满3部后请点击「刷新推荐」哦。
+    <div v-else-if="!hasAnyItems" class="recommend-empty">
+      <p>暂无推荐内容</p>
+      <p class="recommend-empty__hint">评满 3 部电影后，点击「刷新推荐」即可生成专属片单</p>
     </div>
     <template v-else>
-      <section v-for="section in sections" :key="section.key" class="mb-10">
-        <div class="mb-4">
-          <h2 class="text-xl font-bold">{{ section.title }}</h2>
-          <p v-if="section.subtitle" class="mt-1 text-sm text-muted">{{ section.subtitle }}</p>
+      <section v-for="section in sections" :key="section.key" class="recommend-section">
+        <div class="recommend-section__head">
+          <h2 class="recommend-section__title">{{ section.title }}</h2>
+          <p v-if="section.subtitle" class="recommend-section__subtitle">{{ section.subtitle }}</p>
         </div>
-        <div class="section-surface rounded-xl py-6">
-          <div class="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            <MovieCard
-              v-for="movie in section.movies"
-              :key="`${section.key}-${movie.movie_id}`"
-              :movie="movie"
-              recommend-mode
-              class="recommend-card w-full"
-            />
-          </div>
+        <div class="recommend-section__grid">
+          <MovieCard
+            v-for="movie in section.movies"
+            :key="`${section.key}-${movie.movie_id}`"
+            :movie="movie"
+            recommend-mode
+            class="recommend-card w-full"
+          />
         </div>
       </section>
     </template>
@@ -352,70 +296,129 @@ onActivated(load)
 </template>
 
 <style scoped>
-.status-card {
+.recommend-hero {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--fywz-border);
+}
+
+.recommend-hero__toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
-  padding: 1rem 1.25rem;
-  border-radius: 12px;
-  border: 1px solid var(--fywz-border, rgba(255, 255, 255, 0.12));
-  background: var(--fywz-surface, rgba(255, 255, 255, 0.04));
+  justify-content: flex-end;
+  gap: 1.25rem 1.75rem;
 }
 
-.status-card__row {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
-}
-
-.status-card__label {
-  font-size: 12px;
-  color: var(--fywz-muted, #9aa7c0);
-}
-
-.status-card__value {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.status-card__value--ok {
-  color: #22c55e;
-}
-
-.status-card__dot {
-  color: var(--fywz-muted, #9aa7c0);
-  opacity: 0.6;
-}
-
-.status-card__tags {
-  margin-left: auto;
+.recommend-hero__stat {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: right;
 }
 
-.algo-tag {
-  display: inline-block;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 11px;
+.recommend-hero__stat-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fywz-text-muted);
+}
+
+.recommend-hero__stat-value {
+  font-size: 0.9375rem;
   font-weight: 700;
+  color: var(--fywz-text);
 }
 
-.algo-tag--als {
-  background: rgba(37, 99, 235, 0.15);
-  color: #2563eb;
+.recommend-refresh-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.55rem 1.35rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #032541;
+  background: linear-gradient(135deg, #01b4e4, #0096c7);
+  box-shadow: 0 8px 20px rgba(1, 180, 228, 0.28);
+  transition: transform 0.2s ease, filter 0.2s ease;
 }
 
-.algo-tag--graphx {
-  background: rgba(168, 85, 247, 0.15);
-  color: #a855f7;
+.recommend-refresh-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
 }
 
-.algo-tag--content {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+.recommend-refresh-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.recommend-section {
+  margin-bottom: 2.5rem;
+}
+
+.recommend-section__head {
+  margin-bottom: 1rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--fywz-border);
+  position: relative;
+}
+
+.recommend-section__head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 3rem;
+  height: 2px;
+  border-radius: 999px;
+  background: #01b4e4;
+}
+
+.recommend-section__title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--fywz-text);
+}
+
+.recommend-section__subtitle {
+  margin-top: 0.3rem;
+  font-size: 0.8125rem;
+  color: var(--fywz-text-muted);
+}
+
+.recommend-section__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1rem;
+}
+
+.recommend-loading,
+.recommend-empty {
+  padding: 4rem 1rem;
+  text-align: center;
+  color: var(--fywz-text-muted);
+}
+
+.recommend-loading__spinner {
+  width: 2rem;
+  height: 2rem;
+  margin: 0 auto 1rem;
+  border-radius: 999px;
+  border: 3px solid rgba(1, 180, 228, 0.2);
+  border-top-color: #01b4e4;
+  animation: recommend-spin 0.8s linear infinite;
+}
+
+.recommend-empty__hint {
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+}
+
+@keyframes recommend-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 :deep(.recommend-card) {
@@ -423,49 +426,33 @@ onActivated(load)
   max-width: none;
 }
 
-@media (max-width: 640px) {
-  .status-card__tags {
-    margin-left: 0;
-    width: 100%;
-  }
-}
-
 .onboard-banner {
   display: flex;
   gap: 1rem;
-  padding: 1.25rem 1.5rem;
-  border-radius: 14px;
-  border: 1px solid rgba(1, 180, 228, 0.35);
-  background: linear-gradient(
-    135deg,
-    rgba(1, 180, 228, 0.12) 0%,
-    rgba(37, 99, 235, 0.08) 100%
-  );
+  padding: 1.25rem 1.35rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(1, 180, 228, 0.28);
+  background: linear-gradient(135deg, rgba(1, 180, 228, 0.1) 0%, rgba(37, 99, 235, 0.06) 100%);
+  box-shadow: 0 10px 28px var(--fywz-card-shadow);
 }
 
 .onboard-banner--guest {
-  border-color: rgba(168, 85, 247, 0.35);
-  background: linear-gradient(
-    135deg,
-    rgba(168, 85, 247, 0.1) 0%,
-    rgba(1, 180, 228, 0.08) 100%
-  );
+  border-color: rgba(168, 85, 247, 0.28);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(1, 180, 228, 0.06) 100%);
 }
 
-.onboard-banner--success {
-  border-color: rgba(34, 197, 94, 0.4);
-  background: linear-gradient(
-    135deg,
-    rgba(34, 197, 94, 0.12) 0%,
-    rgba(1, 180, 228, 0.06) 100%
-  );
-}
-
-.onboard-banner__icon {
+.onboard-banner__badge {
   flex-shrink: 0;
-  font-size: 1.75rem;
-  line-height: 1;
-  padding-top: 0.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  background: rgba(1, 180, 228, 0.15);
+  color: #01b4e4;
+  font-size: 0.9375rem;
+  font-weight: 800;
 }
 
 .onboard-banner__body {
@@ -475,15 +462,16 @@ onActivated(load)
 
 .onboard-banner__title {
   font-size: 1.05rem;
-  font-weight: 700;
+  font-weight: 800;
   margin: 0 0 0.35rem;
+  color: var(--fywz-text);
 }
 
 .onboard-banner__text {
   margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.55;
-  color: var(--fywz-muted, #9aa7c0);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--fywz-text-muted);
 }
 
 .onboard-banner__progress {
@@ -497,7 +485,7 @@ onActivated(load)
   flex: 1;
   height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(1, 180, 228, 0.12);
   overflow: hidden;
 }
 
@@ -510,7 +498,7 @@ onActivated(load)
 
 .onboard-banner__progress-label {
   flex-shrink: 0;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: #01b4e4;
 }
@@ -523,11 +511,11 @@ onActivated(load)
 }
 
 .onboard-btn {
-  border-radius: 8px;
-  padding: 0.5rem 1.1rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  transition: filter 0.2s ease;
+  border-radius: 999px;
+  padding: 0.5rem 1.15rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  transition: filter 0.2s ease, background 0.2s ease;
 }
 
 .onboard-btn:disabled {
@@ -538,27 +526,50 @@ onActivated(load)
 .onboard-btn--primary {
   border: none;
   background: #01b4e4;
-  color: #042541;
+  color: #032541;
 }
 
 .onboard-btn--primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  filter: brightness(1.06);
 }
 
 .onboard-btn--ghost {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--fywz-border);
   background: transparent;
-  color: inherit;
+  color: var(--fywz-text);
 }
 
 .onboard-btn--ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--fywz-tab-hover);
 }
 
-@media (max-width: 640px) {
+@media (min-width: 640px) {
+  .recommend-section__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .recommend-section__grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .recommend-section__grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .recommend-hero__toolbar {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .onboard-banner {
     flex-direction: column;
-    gap: 0.65rem;
+    gap: 0.75rem;
   }
 }
 </style>

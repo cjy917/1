@@ -41,6 +41,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 SPARK_DATA_DIR = SCRIPT_DIR / "data"
 SPARK_OUTPUT_DIR = SCRIPT_DIR / "output"
 RUN_SCRIPT = SCRIPT_DIR / "run_spark_jobs.sh"
+INCREMENTAL_SCRIPT = SCRIPT_DIR / "run_spark_incremental.sh"
 LOG_FILE = Path(os.environ.get("SPARK_VM_LOG", "/tmp/spark_recommend_job.log"))
 
 _job_lock = threading.Lock()
@@ -75,7 +76,7 @@ def _tail_log(max_lines=30):
     return "\n".join(lines[-max_lines:])
 
 
-def _run_spark_jobs():
+def _run_spark_jobs(incremental=False, target_user_id=None):
     global _job_state
     SPARK_DATA_DIR.mkdir(parents=True, exist_ok=True)
     SPARK_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -84,6 +85,12 @@ def _run_spark_jobs():
     env.setdefault("SPARK_HOME", "/opt/bigdata/spark")
     env["RECOMPILE"] = "0"
     env["PATH"] = env["SPARK_HOME"] + "/bin:" + env.get("PATH", "")
+    if target_user_id is not None:
+        env["TARGET_USER_ID"] = str(target_user_id)
+
+    script = INCREMENTAL_SCRIPT if incremental else RUN_SCRIPT
+    if not script.exists():
+        raise FileNotFoundError("找不到 %s" % script)
 
     with _job_lock:
         _job_state = {
@@ -92,6 +99,8 @@ def _run_spark_jobs():
             "finished_at": None,
             "exit_code": None,
             "error": None,
+            "mode": "incremental" if incremental else "full",
+            "target_user_id": target_user_id,
         }
 
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -99,17 +108,22 @@ def _run_spark_jobs():
     error = None
     try:
         with LOG_FILE.open("w", encoding="utf-8") as log:
-            log.write("===== Spark recompute started %s =====\n" % time.ctime())
+            log.write(
+                "===== Spark %s started %s =====\n"
+                % ("incremental" if incremental else "full", time.ctime())
+            )
+            if target_user_id is not None:
+                log.write("TARGET_USER_ID=%s\n" % target_user_id)
             log.flush()
             proc = subprocess.run(
-                ["bash", str(RUN_SCRIPT)],
+                ["bash", str(script)],
                 cwd=str(SCRIPT_DIR),
                 env=env,
                 stdout=log,
                 stderr=subprocess.STDOUT,
             )
         exit_code = proc.returncode
-        error = None if exit_code == 0 else "run_spark_jobs.sh exited with %s" % exit_code
+        error = None if exit_code == 0 else "%s exited with %s" % (script.name, exit_code)
     except Exception as exc:
         exit_code = -1
         error = str(exc)
@@ -123,14 +137,18 @@ def _run_spark_jobs():
         _job_state["error"] = error
 
 
-def _start_recompute():
+def _start_recompute(incremental=False, target_user_id=None):
     with _job_lock:
         if _job_state.get("running"):
             return 409, {"error": "Spark 任务正在运行", "status": dict(_job_state)}
-    thread = threading.Thread(target=_run_spark_jobs)
+    thread = threading.Thread(
+        target=_run_spark_jobs,
+        kwargs={"incremental": incremental, "target_user_id": target_user_id},
+    )
     thread.daemon = True
     thread.start()
-    return 202, {"message": "Spark 批处理已启动", "status": dict(_job_state)}
+    label = "增量 Spark 批处理已启动" if incremental else "Spark 批处理已启动"
+    return 202, {"message": label, "status": dict(_job_state)}
 
 
 class RecommendHandler(BaseHTTPRequestHandler):
@@ -166,6 +184,31 @@ class RecommendHandler(BaseHTTPRequestHandler):
             _json_response(self, 200, payload)
             return
 
+        if path == "/spark/history/status":
+            fp = SPARK_DATA_DIR / "ratings_history.ndjson"
+            exists = fp.exists()
+            lines = 0
+            size = 0
+            if exists:
+                text = fp.read_text(encoding="utf-8", errors="replace")
+                lines = len([ln for ln in text.splitlines() if ln.strip()])
+                size = fp.stat().st_size
+            cache_exists = (SPARK_OUTPUT_DIR / "graphx_history_cache.ndjson").exists()
+            index_exists = (SPARK_OUTPUT_DIR / "content_similarity_index.ndjson").exists()
+            _json_response(
+                self,
+                200,
+                {
+                    "exists": exists,
+                    "lines": lines,
+                    "bytes": size,
+                    "path": str(fp),
+                    "graphx_cache": cache_exists,
+                    "content_index": index_exists,
+                },
+            )
+            return
+
         if path.startswith("/output/"):
             filename = path.split("/output/", 1)[1]
             if filename not in (
@@ -191,6 +234,50 @@ class RecommendHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = unquote(self.path.split("?", 1)[0])
+
+        if path == "/sync/ratings/history":
+            body = _read_body(self)
+            if not body.strip():
+                _json_response(self, 400, {"error": "empty body"})
+                return
+            SPARK_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            dest = SPARK_DATA_DIR / "ratings_history.ndjson"
+            dest.write_bytes(body)
+            text = body.decode("utf-8", errors="replace")
+            lines = len([ln for ln in text.splitlines() if ln.strip()])
+            _json_response(
+                self,
+                200,
+                {
+                    "message": "history ratings synced",
+                    "path": str(dest),
+                    "lines": lines,
+                    "bytes": len(body),
+                },
+            )
+            return
+
+        if path == "/sync/ratings/web":
+            body = _read_body(self)
+            if not body.strip():
+                _json_response(self, 400, {"error": "empty body"})
+                return
+            SPARK_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            dest = SPARK_DATA_DIR / "ratings_web.ndjson"
+            dest.write_bytes(body)
+            text = body.decode("utf-8", errors="replace")
+            lines = len([ln for ln in text.splitlines() if ln.strip()])
+            _json_response(
+                self,
+                200,
+                {
+                    "message": "web ratings synced",
+                    "path": str(dest),
+                    "lines": lines,
+                    "bytes": len(body),
+                },
+            )
+            return
 
         if path == "/sync/ratings":
             body = _read_body(self)
@@ -236,8 +323,22 @@ class RecommendHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path == "/spark/recompute/incremental":
+            target_user_id = None
+            body = _read_body(self)
+            if body.strip():
+                try:
+                    payload = json.loads(body.decode("utf-8"))
+                    target_user_id = payload.get("target_user_id")
+                except (ValueError, UnicodeDecodeError):
+                    _json_response(self, 400, {"error": "invalid json body"})
+                    return
+            code, payload = _start_recompute(incremental=True, target_user_id=target_user_id)
+            _json_response(self, code, payload)
+            return
+
         if path == "/spark/recompute":
-            code, payload = _start_recompute()
+            code, payload = _start_recompute(incremental=False)
             _json_response(self, code, payload)
             return
 
@@ -247,11 +348,14 @@ class RecommendHandler(BaseHTTPRequestHandler):
 def main():
     if not RUN_SCRIPT.exists():
         raise SystemExit("找不到 %s" % RUN_SCRIPT)
+    if not INCREMENTAL_SCRIPT.exists():
+        raise SystemExit("找不到 %s" % INCREMENTAL_SCRIPT)
     httpd = ThreadingHTTPServer((HOST, PORT), RecommendHandler)
     print("Spark VM gateway listening on http://%s:%s" % (HOST, PORT))
     print("  Python: %s" % sys.version.split()[0])
     print("  project: %s" % PROJECT_ROOT)
-    print("  ratings: %s" % (SPARK_DATA_DIR / "ratings.json"))
+    print("  history: %s" % (SPARK_DATA_DIR / "ratings_history.ndjson"))
+    print("  web:     %s" % (SPARK_DATA_DIR / "ratings_web.ndjson"))
     print("  movies:  %s" % (SPARK_DATA_DIR / "movies_catalog.ndjson"))
     print("  output:  %s" % SPARK_OUTPUT_DIR)
     httpd.serve_forever()

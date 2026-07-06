@@ -6,3 +6,9 @@ export function resolveMediaUrl(url) {
   }
   return url
 }
+
+/** 列表/马赛克用小图（后端 WebP 缩略图 + 缓存） */
+export function posterThumbSrc(movieId, width = 220) {
+  if (!movieId) return ''
+  return `/api/posters/${movieId}?w=${width}`
+}

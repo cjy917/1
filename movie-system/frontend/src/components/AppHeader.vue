@@ -11,11 +11,18 @@ const searchOpen = ref(false)
 
 const navItems = [
   { label: '电影', to: '/movies' },
+  { label: '获奖', to: '/awards' },
+  { label: '影人', to: '/charts' }, // 顶部导航「影人」入口
   { label: '数据分析', to: '/analytics' },
   { label: '推荐', to: '/recommend' },
 ]
 
 const activePath = computed(() => router.currentRoute.value.path)
+
+function isNavActive(to) {
+  if (to === '/') return activePath.value === '/'
+  return activePath.value === to || activePath.value.startsWith(`${to}/`)
+}
 
 function toggleSearch() {
   searchOpen.value = !searchOpen.value
@@ -34,7 +41,7 @@ function onDocumentClick(event) {
   if (!searchOpen.value) return
   const target = event.target
   if (!(target instanceof Element)) return
-  if (target.closest('.site-header-search') || target.closest('.header-search')) return
+  if (target.closest('.site-header-search-box') || target.closest('.header-search')) return
   closeSearch()
 }
 
@@ -68,7 +75,7 @@ watch(
             :key="item.to"
             :to="item.to"
             class="site-nav-link"
-            :class="{ 'is-active': activePath === item.to }"
+            :class="{ 'is-active': isNavActive(item.to) }"
           >
             {{ item.label }}
           </router-link>
@@ -92,11 +99,10 @@ watch(
           <router-link to="/register" class="site-header-action site-header-action--text">注册</router-link>
         </template>
 
-        <button
+        <div
           type="button"
-          class="site-header-search"
-          :class="{ 'site-header-search--active': searchOpen }"
-          aria-label="搜索"
+          class="site-header-search-box"
+          :class="{ 'site-header-search-box--active': searchOpen }"
           @click.stop="toggleSearch"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -107,7 +113,8 @@ watch(
               d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z"
             />
           </svg>
-        </button>
+          <span class="site-header-search-box__placeholder">搜索电影、导演、演员……</span>
+        </div>
       </div>
     </div>
 
