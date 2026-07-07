@@ -1,0 +1,488 @@
+"""Spark 批处理推荐：用户点「刷新」时在 VM 重算 ALS/GraphX/Content，展示读本地 JSON。"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from config import (
+    RECOMMEND_TOP_N,
+    SPARK_OUTPUT_DIR,
+    SPARK_USER_OFFSET,
+    WEIGHT_ALS,
+    WEIGHT_CONTENT,
+    WEIGHT_GRAPHX,
+)
+from models import UserRating
+from services.movie_service import (
+    get_home_sections,
+    get_movie_by_id,
+    get_movies_by_ids,
+    get_mysql,
+    get_similar_movies,
+    _row_to_movie,
+)
+
+STRATEGY_LABELS = {
+    "spark_hybrid": "Spark 混合推荐 (ALS 0.7 + GraphX 0.2 + TF-IDF 0.1)",
+    "spark_pending": "待刷新 · 请点击「刷新推荐」在 VM 上运行 Spark",
+    "cold_start": "冷启动 · 与首页「热门电影」相同",
+}
+
+SECTION_LIMIT = 20
+RATING_MIN_FOR_PERSONAL = 3
+
+
+def _short_title(title: str | None, max_len: int = 12) -> str:
+    text = (title or "该电影").strip()
+    return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
+
+def _user_top_ratings(user_id: int, limit: int = 3) -> list[tuple[str, float, dict[str, Any] | None]]:
+    rows = (
+        UserRating.query.filter_by(user_id=user_id)
+        .order_by(UserRating.score.desc())
+        .limit(limit)
+        .all()
+    )
+    result: list[tuple[str, float, dict[str, Any] | None]] = []
+    for row in rows:
+        movie = get_movie_by_id(row.movie_id)
+        title = movie.get("title") if movie else str(row.movie_id)
+        result.append((title, float(row.score), movie))
+    return result
+
+
+def _reason_for_content(
+    movie: dict[str, Any],
+    *,
+    source_title: str | None = None,
+    source_score: float | None = None,
+    user_genres: set[str] | None = None,
+) -> str:
+    if source_title and source_score:
+        return f"与你给《{_short_title(source_title)}》打的 {source_score:.1f} 分相关，内容/类型相近"
+    genres = (movie.get("genres") or "").replace(" ", "")
+    movie_genres = {g for g in genres.split("/") if g}
+    if user_genres and movie_genres & user_genres:
+        hit = next(iter(movie_genres & user_genres))
+        return f"与你常看的「{hit}」类电影相似"
+    if movie_genres:
+        return f"TF-IDF 内容相似：接近你喜欢的「{next(iter(movie_genres))}」类型"
+    return "内容相似：基于电影简介与类型的 TF-IDF 匹配"
+
+
+def _reason_for_hybrid(algos: list[str], movie: dict[str, Any], user_id: int) -> str:
+    parts: list[str] = []
+    if "als" in algos:
+        tops = _user_top_ratings(user_id, limit=1)
+        if tops:
+            title, score, _ = tops[0]
+            parts.append(f"参考你对《{_short_title(title)}》的 {score:.1f} 分")
+        else:
+            parts.append("你的评分偏好")
+    if "graphx" in algos:
+        parts.append("相似用户也在看")
+    if "content" in algos:
+        genres = (movie.get("genres") or "").replace(" ", "")
+        g = [x for x in genres.split("/") if x]
+        if g:
+            parts.append(f"「{g[0]}」类型匹配")
+        else:
+            parts.append("内容类型相近")
+    if parts:
+        return "混合推荐：" + " · ".join(parts)
+    return "混合推荐：多算法融合排序"
+
+
+def _reason_for_cold_start(movie: dict[str, Any]) -> str:
+    rating = movie.get("rating")
+    if rating:
+        return f"首页热门电影 · 豆瓣 {float(rating):.1f} 分 · 评价人数多"
+    return "与首页「热门电影」栏目一致"
+
+
+def _movie_card(
+    movie: dict[str, Any],
+    score: float,
+    algorithm: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    card = {
+        "movie_id": movie["movie_id"],
+        "title": movie.get("title"),
+        "poster_url": movie.get("poster_url") or f"/api/posters/{movie['movie_id']}",
+        "score": round(float(score), 1),
+        "algorithm": algorithm,
+        "genres": movie.get("genres"),
+        "rating": round(float(movie["rating"]), 1) if movie.get("rating") not in (None, "") else movie.get("rating"),
+    }
+    if reason:
+        card["reason"] = reason
+    return card
+
+
+def get_home_popular_items(limit: int = SECTION_LIMIT) -> list[dict[str, Any]]:
+    """与首页 /api/movies/home 的 popular 区块使用同一数据源。"""
+    movies = get_home_sections().get("popular", [])[:limit]
+    return [
+        _movie_card(m, m.get("rating") or 0, "popular", _reason_for_cold_start(m))
+        for m in movies
+    ]
+
+
+def get_cold_start_movies(limit: int = 12) -> list[dict[str, Any]]:
+    return get_home_popular_items(limit)
+
+
+def get_content_similar_movies(movie_id: int | str, limit: int = 10) -> list[dict[str, Any]]:
+    similar = get_similar_movies(int(movie_id), limit=limit)
+    return [_movie_card(m, (m.get("rating") or 0) / 10.0, "content") for m in similar]
+
+
+def _normalize_scores(items: list[dict], movie_id_key: str = "movieId") -> dict[str, float]:
+    if not items:
+        return {}
+    scores = [float(x.get("score", 0)) for x in items]
+    min_s, max_s = min(scores), max(scores)
+    span = max_s - min_s if max_s > min_s else 1.0
+    return {str(item[movie_id_key]): (float(item.get("score", 0)) - min_s) / span for item in items}
+
+
+def _user_preferred_genres(user_id: int) -> set[str]:
+    genres: set[str] = set()
+    for _, _, movie in _user_top_ratings(user_id, limit=5):
+        if not movie:
+            continue
+        raw = (movie.get("genres") or "").replace(" ", "")
+        genres.update(g for g in raw.split("/") if g)
+    return genres
+
+
+def _default_reason(algorithm: str, movie: dict[str, Any], user_id: int | None = None) -> str:
+    if algorithm == "als":
+        return _reason_for_spark_als(user_id) if user_id else "Spark ALS 协同过滤"
+    if algorithm == "graphx":
+        return _reason_for_spark_graphx()
+    if algorithm == "content":
+        return _reason_for_spark_content()
+    if algorithm == "cold_start":
+        return _reason_for_cold_start(movie)
+    if "+" in algorithm and user_id:
+        return _reason_for_hybrid(algorithm.split("+"), movie, user_id)
+    return "个性化推荐"
+
+
+def _rank_to_items(
+    score_map: dict[str, float],
+    algorithm: str,
+    rated_movie_ids: set[str],
+    limit: int,
+    *,
+    reasons_map: dict[str, str] | None = None,
+    user_id: int | None = None,
+) -> list[dict[str, Any]]:
+    if not score_map:
+        return []
+    ranked = sorted(score_map.items(), key=lambda x: -x[1])
+    candidate_ids = [int(mid) for mid, _ in ranked[: limit + len(rated_movie_ids)]]
+    movie_map = {str(m["movie_id"]): m for m in get_movies_by_ids(candidate_ids)}
+    items: list[dict[str, Any]] = []
+    for mid, score in ranked:
+        if mid in rated_movie_ids:
+            continue
+        movie = movie_map.get(mid) or get_movie_by_id(int(mid))
+        if not movie:
+            continue
+        reason = (reasons_map or {}).get(mid) or _default_reason(algorithm, movie, user_id)
+        items.append(_movie_card(movie, score, algorithm, reason))
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _build_sections_payload(
+    *,
+    hybrid_items: list[dict[str, Any]],
+    als_items: list[dict[str, Any]],
+    graphx_items: list[dict[str, Any]],
+    content_items: list[dict[str, Any]],
+    popular_items: list[dict[str, Any]],
+    strategy: str,
+    source: str,
+    rating_count: int,
+    spark_imported: bool,
+    personalized_ready: bool = False,
+) -> dict[str, Any]:
+    primary_items = hybrid_items if hybrid_items else (popular_items if strategy != "spark_pending" else [])
+    return {
+        "items": primary_items,
+        "hybrid_items": hybrid_items,
+        "als_items": als_items,
+        "graphx_items": graphx_items,
+        "content_items": content_items,
+        "popular_items": popular_items,
+        "source": source,
+        "strategy": strategy,
+        "strategy_label": STRATEGY_LABELS.get(strategy, STRATEGY_LABELS["spark_hybrid"]),
+        "rating_count": rating_count,
+        "spark_imported": spark_imported,
+        "personalized_ready": personalized_ready,
+        "rating_required": RATING_MIN_FOR_PERSONAL,
+    }
+
+
+def _load_user_spark_raw(filename: str, spark_user_id: int) -> list[dict]:
+    path = SPARK_OUTPUT_DIR / filename
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return [x for x in payload.get("items", []) if int(x.get("userId", -1)) == spark_user_id]
+
+
+def _spark_has_outputs() -> bool:
+    return all(
+        (SPARK_OUTPUT_DIR / name).exists()
+        for name in (
+            "recommendations_als.json",
+            "recommendations_graphx.json",
+            "recommendations_content.json",
+        )
+    )
+
+
+def _spark_score_map(filename: str, spark_user_id: int) -> dict[str, float]:
+    return _normalize_scores(_load_user_spark_raw(filename, spark_user_id), movie_id_key="movieId")
+
+
+def _reason_for_spark_als(user_id: int) -> str:
+    tops = _user_top_ratings(user_id, limit=1)
+    if tops:
+        title, score, _ = tops[0]
+        return f"Spark ALS：基于全量评分矩阵，参考你对《{_short_title(title)}》的 {score:.1f} 分"
+    return "Spark ALS：Spark MLlib 协同过滤"
+
+
+def _reason_for_spark_graphx() -> str:
+    return "Spark GraphX：用户-电影图上的协同扩展推荐"
+
+
+def _reason_for_spark_content() -> str:
+    return "Spark TF-IDF：类型/导演/演员等内容向量相似"
+
+
+def _reason_for_spark_hybrid(algos: list[str], user_id: int) -> str:
+    parts: list[str] = []
+    if "als" in algos:
+        tops = _user_top_ratings(user_id, limit=1)
+        if tops:
+            title, score, _ = tops[0]
+            parts.append(f"Spark ALS 参考《{_short_title(title)}》{score:.1f} 分")
+        else:
+            parts.append("Spark ALS")
+    if "graphx" in algos:
+        parts.append("GraphX 图协同")
+    if "content" in algos:
+        parts.append("TF-IDF 内容相似")
+    return "Spark 混合：" + " · ".join(parts) if parts else "Spark 混合推荐"
+
+
+def _spark_hybrid_recommendations(
+    user_id: int,
+    rating_count: int,
+    *,
+    refreshed: bool = False,
+) -> dict[str, Any]:
+    """从本地 spark/output/*.json 读取该用户推荐（由 VM 批处理产出）。"""
+    spark_uid = user_id + SPARK_USER_OFFSET
+    rated_movie_ids = {str(r.movie_id) for r in UserRating.query.filter_by(user_id=user_id).all()}
+
+    if not _spark_has_outputs():
+        return _build_sections_payload(
+            hybrid_items=[],
+            als_items=[],
+            graphx_items=[],
+            content_items=[],
+            popular_items=get_home_popular_items(limit=SECTION_LIMIT),
+            strategy="spark_pending",
+            source="spark",
+            rating_count=rating_count,
+            spark_imported=False,
+            personalized_ready=False,
+        )
+
+    als_norm = _spark_score_map("recommendations_als.json", spark_uid)
+    graphx_norm = _spark_score_map("recommendations_graphx.json", spark_uid)
+    content_norm = _spark_score_map("recommendations_content.json", spark_uid)
+
+    if not als_norm and not graphx_norm and not content_norm:
+        return _build_sections_payload(
+            hybrid_items=[],
+            als_items=[],
+            graphx_items=[],
+            content_items=[],
+            popular_items=get_home_popular_items(limit=SECTION_LIMIT),
+            strategy="spark_pending",
+            source="spark",
+            rating_count=rating_count,
+            spark_imported=True,
+            personalized_ready=False,
+        )
+
+    fused: dict[str, dict[str, Any]] = {}
+
+    def _add(mid: str, score: float, algo: str) -> None:
+        if mid in rated_movie_ids:
+            return
+        if mid not in fused:
+            fused[mid] = {"score": 0.0, "algos": []}
+        fused[mid]["score"] += score
+        fused[mid]["algos"].append(algo)
+
+    for mid, s in als_norm.items():
+        _add(mid, s * WEIGHT_ALS, "als")
+    for mid, s in graphx_norm.items():
+        _add(mid, s * WEIGHT_GRAPHX, "graphx")
+    for mid, s in content_norm.items():
+        _add(mid, s * WEIGHT_CONTENT, "content")
+
+    hybrid_items: list[dict[str, Any]] = []
+    if fused:
+        ranked = sorted(fused.items(), key=lambda x: -x[1]["score"])[:SECTION_LIMIT]
+        movie_map = {str(m["movie_id"]): m for m in get_movies_by_ids([int(mid) for mid, _ in ranked])}
+        for mid, meta in ranked:
+            movie = movie_map.get(mid) or get_movie_by_id(int(mid))
+            if not movie:
+                continue
+            algos = sorted(set(meta["algos"]))
+            algo = "+".join(algos)
+            reason = _reason_for_spark_hybrid(algos, user_id)
+            hybrid_items.append(_movie_card(movie, meta["score"], algo, reason))
+
+    als_reasons = {mid: _reason_for_spark_als(user_id) for mid in als_norm}
+    graphx_reasons = {mid: _reason_for_spark_graphx() for mid in graphx_norm}
+    content_reasons = {mid: _reason_for_spark_content() for mid in content_norm}
+
+    als_items = _rank_to_items(
+        als_norm, "als", rated_movie_ids, SECTION_LIMIT, reasons_map=als_reasons, user_id=user_id
+    )
+    graphx_items = _rank_to_items(
+        graphx_norm, "graphx", rated_movie_ids, SECTION_LIMIT, reasons_map=graphx_reasons, user_id=user_id
+    )
+    content_items = _rank_to_items(
+        content_norm, "content", rated_movie_ids, SECTION_LIMIT, reasons_map=content_reasons, user_id=user_id
+    )
+
+    return _build_sections_payload(
+        hybrid_items=hybrid_items[:SECTION_LIMIT],
+        als_items=als_items,
+        graphx_items=graphx_items,
+        content_items=content_items,
+        popular_items=[],
+        strategy="spark_hybrid",
+        source="spark",
+        rating_count=rating_count,
+        spark_imported=True,
+        personalized_ready=refreshed or bool(hybrid_items),
+    )
+
+
+def refresh_spark_recommendations(user_id: int) -> dict[str, Any]:
+    """导出评分 → 同步 VM → 触发 Spark 批处理 → 拉回 JSON → 返回推荐。"""
+    rating_count = UserRating.query.filter_by(user_id=user_id).count()
+    if rating_count < RATING_MIN_FOR_PERSONAL:
+        return hybrid_recommendations(user_id)
+
+    from services.catalog_service import export_spark_movies_catalog_file
+    from services.ratings_service import export_spark_ratings_file
+
+    export_spark_ratings_file()
+    export_spark_movies_catalog_file()
+
+    from services.spark_vm_client import run_spark_pipeline_on_vm
+
+    run_spark_pipeline_on_vm()
+    return _spark_hybrid_recommendations(user_id, rating_count, refreshed=True)
+
+
+def get_preference_recommendations(
+    like_genres: list[str] | None,
+    like_directors: list[str] | None,
+    like_actors: list[str] | None,
+    limit: int = 24,
+) -> list[dict[str, Any]]:
+    """根据注册问卷偏好（类型/导演/演员）匹配电影。"""
+    genres = [g.strip() for g in (like_genres or []) if g and str(g).strip()]
+    directors = [d.strip() for d in (like_directors or []) if d and str(d).strip()]
+    actors = [a.strip() for a in (like_actors or []) if a and str(a).strip()]
+    if not genres and not directors and not actors:
+        return []
+
+    conditions: list[str] = []
+    params: list[Any] = []
+    if genres:
+        genre_conds = " OR ".join(["genres LIKE %s"] * len(genres))
+        conditions.append(f"({genre_conds})")
+        params.extend([f"%{g}%" for g in genres])
+    if directors:
+        dir_conds = " OR ".join(["directors LIKE %s"] * len(directors))
+        conditions.append(f"({dir_conds})")
+        params.extend([f"%{d}%" for d in directors])
+    if actors:
+        act_conds = " OR ".join(["actors LIKE %s"] * len(actors))
+        conditions.append(f"({act_conds})")
+        params.extend([f"%{a}%" for a in actors])
+
+    params.append(limit * 8)
+    where = " OR ".join(conditions)
+
+    with get_mysql() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT * FROM movies
+                WHERE {where}
+                ORDER BY rating DESC, rating_count DESC
+                LIMIT %s
+                """,
+                params,
+            )
+            rows = cursor.fetchall()
+
+    genre_set = set(genres)
+    director_set = set(directors)
+    actor_set = set(actors)
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for row in rows:
+        movie = _row_to_movie(row)
+        g_overlap = len(genre_set & set(movie.get("genre_list") or []))
+        d_overlap = len(director_set & set(movie.get("director_list") or []))
+        a_overlap = len(actor_set & set(movie.get("actor_list") or []))
+        rating = float(movie.get("rating") or 0)
+        score = g_overlap * 3 + d_overlap * 5 + a_overlap * 4 + rating * 0.1
+        if score > 0:
+            scored.append((score, movie))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [movie for _, movie in scored[:limit]]
+
+
+def hybrid_recommendations(user_id: int, limit: int = RECOMMEND_TOP_N) -> dict[str, Any]:
+    rating_count = UserRating.query.filter_by(user_id=user_id).count()
+    popular_items = get_home_popular_items(limit=SECTION_LIMIT)
+
+    if rating_count < RATING_MIN_FOR_PERSONAL:
+        return _build_sections_payload(
+            hybrid_items=[],
+            als_items=[],
+            graphx_items=[],
+            content_items=[],
+            popular_items=popular_items,
+            strategy="cold_start",
+            source="fallback",
+            rating_count=rating_count,
+            spark_imported=False,
+            personalized_ready=False,
+        )
+
+    return _spark_hybrid_recommendations(user_id, rating_count)
